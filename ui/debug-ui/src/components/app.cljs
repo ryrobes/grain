@@ -38,6 +38,37 @@
                   :on-click #(rf/dispatch [::subs/clear-error])}
          "×"]]])))
 
+(defn logo-mark []
+  [:div
+   {:style (merge s/bg-gray-900   s/px-6 s/py-4
+                  s/flex s/items-center s/justify-end)}
+   [:div
+    {:style {:margin-left "auto"
+             :height "45px"
+             :display "flex"
+             :flex-direction "column"
+             :align-items "flex-end"
+             :justify-content "center"
+             :gap "0px"}}
+    [:div
+     {:style {:font-size "64px"
+              :font-weight 900
+              :font-family "Outfit, ui-sans-serif, system-ui"
+              :box-shadow "0 12px 15px rgba(0,0,0,0.2)"
+              :text-shadow "6px 0px 0px rgba(0, 242, 255, 1), -19px 0px 27px rgba(0, 242, 255, 0.22)"
+              :line-height "0.8"
+              :margin-top "5px"}}
+     "GRAIN"]
+    [:div
+     {:style {:font-size "26px"
+              :font-weight 900
+              :font-family "Outfit, ui-sans-serif, system-ui"
+              :text-shadow "5px 0px 0px rgba(0, 242, 255, 1), -4px 0px 6px rgba(0, 242, 255, 0.22)"
+              :letter-spacing "0.1em"
+              :margin-top "-8px"
+              :margin-right "-16px"}}
+     "\"SANDMAN\""]]])
+
 (defn view-mode-toggle
   []
   (let [current-mode @(rf/subscribe [::subs/view-mode])
@@ -45,17 +76,25 @@
         event-hover? (is-hovering? :btn-event)
         data-hover? (is-hovering? :btn-data)
         hybrid-hover? (is-hovering? :btn-hybrid)
-
-        button-base (merge s/px-3 s/py-1-5 s/rounded s/text-xs s/font-medium s/transition-all s/cursor-pointer)
+        sse-connected @(rf/subscribe [::subs/sse-connected])
+        sse-reconnecting @(rf/subscribe [::subs/sse-reconnecting])
+        button-base (merge s/px-3 s/py-1-5  s/text-xs s/font-medium s/transition-all s/cursor-pointer {:border "none" :outline "none"})
         button-active {:color "#ffffff" :box-shadow "0 10px 15px -3px rgba(0, 0, 0, 0.1)"}
         button-inactive (merge s/text-gray-400 {:background-color (:gray-800 s/colors)})
         button-inactive-hover (merge {:background-color (:gray-700 s/colors)
                                       :color (:gray-300 s/colors)})]
-    [rc/h-box
+    [rc/h-box 
+     :align :center 
+     :children 
+     [[rc/h-box
      :style (merge s/px-4 s/py-3   
-                  s/flex s/items-center s/gap-3)
+                  ;s/flex 
+                   s/items-center 
+                   ;s/gap-3
+                   {:border "none" :outline "none"}
+                   )
      :children
-     [[:span {:style (merge s/text-gray-400 s/font-semibold s/text-sm)} "View:"]
+     [;[:span {:style (merge s/text-gray-400 s/font-semibold s/text-sm)} "View:"]
 
       ;; Control Flow button
       [:button {:style (merge button-base
@@ -103,9 +142,194 @@
                 :on-mouse-enter #(set-hover :btn-hybrid true)
                 :on-mouse-leave #(set-hover :btn-hybrid false)
                 :on-click #(rf/dispatch [::events/set-view-mode :hybrid])}
-       "Hybrid"]]]))
+       "Hybrid"]]]
+       
+       [rc/h-box
+        :style (merge s/flex s/items-center s/text-xs)
+        :align :center 
+        :children
+        [(cond
+           sse-connected
+           [rc/h-box
+            :style (merge s/flex s/items-center)
+            :children
+            [[:span {:style (merge s/w-2 s/h-2 s/bg-green-400 s/rounded-full s/mr-2 s/animate-pulse
+                                   {:margin-top "4px"})} ""]
+             [:span {:style s/text-green-400} "Live"]]]
+       
+           sse-reconnecting
+           [rc/h-box
+            :style (merge s/flex s/items-center)
+            :children
+            [[:span {:style (merge s/w-2 s/h-2 s/bg-yellow-400 s/rounded-full s/mr-2 s/animate-pulse)} ""]
+             [:span {:style (merge s/text-xs {:color (:yellow-400 s/colors)})} "Reconnecting..."]]]
+       
+           :else
+           [:span {:style (merge s/text-xs {:color (:gray-500 s/colors)})} "Offline"])]]
+       ]]
+       
+       ))
 
 (defn node-type-legend
+  []
+  [rc/h-box
+   :padding "8px 16px"
+   :align :center
+   :gap "24px"
+   :style {:font-size "12px"}
+   :children
+   [
+    ;; [rc/box
+    ;;  :child "Node Types:"
+    ;;  :style {:color (:gray-400 s/colors)
+    ;;          :font-weight "600"}]
+
+    ;; Command
+    [rc/h-box
+     :align :center
+     :gap "8px"
+     :children
+     [[rc/box
+       :child ""
+       :style {:width "16px"
+               :height "16px"
+               :border-radius "4px"
+               ;:border "1px solid"
+               :border-color (:blue-400 s/colors)
+               :background-color (:blue-900 s/colors)}]
+      [rc/box
+       :child "Command"
+       :style {:color (:blue-400 s/colors)}]
+      [rc/box
+       :child "(emits events)"
+       :style {:color (:gray-500 s/colors)}]]]
+
+    ;; Query
+    [rc/h-box
+     :align :center
+     :gap "8px"
+     :children
+     [[rc/box
+       :child ""
+       :style {:width "16px"
+               :height "16px"
+               :border-radius "4px"
+               ;:border "1px solid"
+               :border-color (:green-400 s/colors)
+               :background-color (:green-900 s/colors)}]
+      [rc/box
+       :child "Query"
+       :style {:color (:green-400 s/colors)}]
+      [rc/box
+       :child "(read-only)"
+       :style {:color (:gray-500 s/colors)}]]]
+
+    ;; Computation
+    [rc/h-box
+     :align :center
+     :gap "8px"
+     :children
+     [[rc/box
+       :child ""
+       :style {:width "16px"
+               :height "16px"
+               :border-radius "4px"
+               ;:border "1px solid"
+               :border-color (:orange-400 s/colors)
+               :background-color (:orange-900 s/colors)}]
+      [rc/box
+       :child "Computation"
+       :style {:color (:orange-400 s/colors)}]
+      [rc/box
+       :child "(transform)"
+       :style {:color (:gray-500 s/colors)}]]]
+
+    ;; Conditional
+    [rc/h-box
+     :align :center
+     :gap "8px"
+     :children
+     [[rc/box
+       :child ""
+       :style {:width "16px"
+               :height "16px"
+               :border-radius "4px"
+              ; :border "1px solid"
+               :border-color (:yellow-300 s/colors)
+               :background-color "#fef3c7"}]
+      [rc/box
+       :child "Conditional"
+       :style {:color (:yellow-300 s/colors)}]
+      [rc/box
+       :child "(decision)"
+       :style {:color (:gray-500 s/colors)}]]]
+
+    [rc/box
+     :child "|"
+     :style {:color (:gray-600 s/colors)}]
+
+    ;; Read Model Annotation
+    [rc/h-box
+     :align :center
+     :gap "8px"
+     :children
+     [[rc/box
+       :child ""
+       :style {:width "16px"
+               :height "16px"
+               :border-radius "4px"
+               ;:border "1px solid"
+               :border-color (:cyan-400 s/colors)
+               :background-color (:cyan-900 s/colors)}]
+      [rc/box
+       :child "Read Model"
+       :style {:color (:cyan-400 s/colors)}]
+      [rc/box
+       :child "(queries)"
+       :style {:color (:gray-500 s/colors)}]]]
+
+    ;; DSPy Annotation
+    [rc/h-box
+     :align :center
+     :gap "8px"
+     :children
+     [[rc/box
+       :child ""
+       :style {:width "16px"
+               :height "16px"
+               :border-radius "4px"
+              ; :border "1px solid"
+               :border-color "#059669"
+               :background-color "#064e3b"}]
+      [rc/box
+       :child "DSPy"
+       :style {:color "#6ee7b7"}]
+      [rc/box
+       :child "(AI reasoning)"
+       :style {:color (:gray-500 s/colors)}]]]
+
+    ;; Event Annotation
+    [rc/h-box
+     :align :center
+     :gap "8px"
+     :children
+     [[rc/box
+       :child ""
+       :style {:width "16px"
+               :height "16px"
+               :border-radius "4px"
+               ;:border "1px solid"
+               :border-color (:purple-400 s/colors)
+               :background-color (:purple-900 s/colors)}]
+      [rc/box
+       :child "Events"
+       :style {:color (:purple-400 s/colors)}]
+      [rc/box
+       :child "(emitted)"
+       :style {:color (:gray-500 s/colors)}]]]]])
+
+
+(defn node-type-legend-old
   []
   [rc/h-box
    :style (merge s/px-4 s/py-2  
@@ -115,7 +339,8 @@
 
     ;; Command
     [rc/h-box
-     :style (merge s/flex s/items-center s/gap-2)
+     :style (merge 
+             s/flex s/items-center s/gap-2)
      :children
      [[:div {:style (merge s/w-4 s/h-4 s/rounded s/border-2
                           s/border-blue-400
@@ -195,10 +420,11 @@
       (let [{:keys [command-name duration-ms status trace-id]} current-trace
             trace-id-str (str trace-id)]
         [rc/h-box
-         :style (merge s/px-4 s/py-2 s/bg-gray-800 
+         :align :center 
+         :style (merge s/px-4 s/py-2 ;s/bg-gray-800 
                       s/flex s/items-center s/gap-4 s/text-sm)
          :children
-         [[:span {:style s/text-gray-400} "Trace:"]
+         [;[:span {:style s/text-gray-400} "Trace:"]
           [:span {:style (merge s/text-gray-200 s/font-medium)} (name command-name)]
           [:span {:style s/text-gray-400} "|"]
 
@@ -212,7 +438,7 @@
             [:span {:style {:color (:gray-300 s/colors)}} (str duration-ms "ms")])
 
           [:span {:style s/text-gray-400} "|"]
-          [:span {:style s/text-gray-400} "Status:"]
+          ;[:span {:style s/text-gray-400} "Status:"]
           [:span {:style (case status
                           :running {:color (:yellow-400 s/colors)}
                           :success {:color (:green-400 s/colors)}
@@ -229,8 +455,45 @@
                            :trace-id trace-id-str
                            :is-executing is-executing}]])
 
-          [:span {:style (merge s/ml-auto s/text-xs {:color (:gray-500 s/colors)} s/font-mono)}
-           trace-id-str]]]))))
+          ;; [:span {:style (merge s/ml-auto s/text-xs {:color (:gray-500 s/colors)} s/font-mono)} trace-id-str]
+          ]]))))
+
+(defn logo []
+  [rc/h-box
+   ;:padding "16px 24px"
+   :align :center
+   :justify :end
+   
+   ;:style {:background-color (:gray-900 s/colors)}
+   :children
+   [[rc/v-box
+     :align :end
+     :justify :center
+     :gap "0px"
+     :style {:margin-left "auto"
+             :padding-right "15px"
+             :height "45px"}
+     :children
+     [[rc/box
+       :child "GRAIN"
+       :style {:font-size "64px"
+               :font-weight 900
+               :font-family "Outfit, ui-sans-serif, system-ui"
+               :box-shadow "0 12px 15px rgba(0,0,0,0.3)"
+               :text-shadow "10px 0px 0px rgba(0, 242, 255, 0.5), -19px 0px 27px rgba(0, 242, 255, 0.32)"
+               :line-height "0.8"
+               :margin-top "5px"}]
+      [rc/box
+       :child "\"SANDMAN\""
+       :style {:font-size "26px"
+               :font-weight 900
+               :font-family "Outfit, ui-sans-serif, system-ui"
+               ;:color "#ffffff99"
+               :text-shadow "6px 0px 0px rgba(0, 242, 255, 0.5), -4px 0px 6px rgba(0, 242, 255, 0.32)"
+               :letter-spacing "0.1em"
+               :margin-top "-8px"
+               ;:margin-right "-16px"
+               }]]]]])
 
 (defn app
   []
@@ -241,41 +504,51 @@
     [error-banner]
 
     ;; Header with GRAIN SANDMAN title
-    [:div
-     {:style (merge s/bg-gray-900   s/px-6 s/py-4
-                   s/flex s/items-center s/justify-end)}
-     [:div
-      {:style {:margin-left "auto"
-               :height "45px"
-               :display "flex"
-               :flex-direction "column"
-               :align-items "flex-end"
-               :justify-content "center"
-               :gap "0px"}}
-      [:div
-       {:style {:font-size "64px"
-                :font-weight 900
-                :font-family "Outfit, ui-sans-serif, system-ui"
-                :box-shadow "0 12px 15px rgba(0,0,0,0.2)"
-                :text-shadow "6px 0px 0px rgba(0, 242, 255, 1), -19px 0px 27px rgba(0, 242, 255, 0.22)"
-                :line-height "0.8"
-                :margin-top "5px"}}
-       "GRAIN"]
-      [:div
-       {:style {:font-size "26px"
-                :font-weight 900
-                :font-family "Outfit, ui-sans-serif, system-ui"
-                :text-shadow "5px 0px 0px rgba(0, 242, 255, 1), -4px 0px 6px rgba(0, 242, 255, 0.22)"
-                :letter-spacing "0.1em"
-                :margin-top "-8px"
-                :margin-right "-16px"}}
-       "\"SANDMAN\""]]]
+    ;; [:div
+    ;;  {:style (merge s/bg-gray-900   s/px-6 s/py-4
+    ;;                 s/flex s/items-center s/justify-end)}
+    ;; ;;  [:div
+    ;; ;;   {:style {:margin-left "auto"
+    ;; ;;            :height "45px"
+    ;; ;;            :display "flex"
+    ;; ;;            :flex-direction "column"
+    ;; ;;            :align-items "flex-end"
+    ;; ;;            :justify-content "center"
+    ;; ;;            :gap "0px"}}
+    ;; ;;   [:div
+    ;; ;;    {:style {:font-size "64px"
+    ;; ;;             :font-weight 900
+    ;; ;;             :font-family "Outfit, ui-sans-serif, system-ui"
+    ;; ;;             :box-shadow "0 12px 15px rgba(0,0,0,0.2)"
+    ;; ;;             :text-shadow "6px 0px 0px rgba(0, 242, 255, 1), -19px 0px 27px rgba(0, 242, 255, 0.22)"
+    ;; ;;             :line-height "0.8"
+    ;; ;;             :margin-top "5px"}}
+    ;; ;;    "GRAIN"]
+    ;; ;;   [:div
+    ;; ;;    {:style {:font-size "26px"
+    ;; ;;             :font-weight 900
+    ;; ;;             :font-family "Outfit, ui-sans-serif, system-ui"
+    ;; ;;             :text-shadow "5px 0px 0px rgba(0, 242, 255, 1), -4px 0px 6px rgba(0, 242, 255, 0.22)"
+    ;; ;;             :letter-spacing "0.1em"
+    ;; ;;             :margin-top "-8px"
+    ;; ;;             :margin-right "-16px"}}
+    ;; ;;    "\"SANDMAN\""]]
+       
+    ;;  [logo]
 
-    ;; View mode toggle
-    [view-mode-toggle]
+    ;;    ]
 
-    ;; Node type legend
-    [node-type-legend]
+    ;; [view-mode-toggle]
+    ;; [node-type-legend]
+
+    [rc/h-box
+     :justify :between 
+     :children
+     [[rc/v-box
+       :children
+       [[view-mode-toggle]
+        [node-type-legend]]]
+      [logo]]]
 
     ;; Trace info bar
     [trace-info-bar]

@@ -97,66 +97,63 @@
        [[:span {:style (merge s/text-xs s/text-gray-400)} (format-timestamp started-at)]
         [:span {:style (merge s/text-xs s/text-gray-400)} (str duration-ms "ms")]]]]]))
 
-(defn trace-list
-  []
+(defn trace-list []
   (let [traces @(rf/subscribe [::subs/traces])
         loading @(rf/subscribe [::subs/loading])
         current-trace @(rf/subscribe [::subs/current-trace])
-        sse-connected @(rf/subscribe [::subs/sse-connected])
-        sse-reconnecting @(rf/subscribe [::subs/sse-reconnecting])
-        refresh-hover? (is-hovering? :refresh-btn)
-
-        on-select (fn [trace-id]
-                   (rf/dispatch [::events/select-trace trace-id]))
-
-        on-refresh (fn []
-                    (rf/dispatch [::events/fetch-traces]))]
+        ;; sse-connected @(rf/subscribe [::subs/sse-connected])
+        ;; sse-reconnecting @(rf/subscribe [::subs/sse-reconnecting])
+        ;refresh-hover? (is-hovering? :refresh-btn)
+        on-select (fn [trace-id] (rf/dispatch [::events/select-trace trace-id]))
+        ;on-refresh (fn [] (rf/dispatch [::events/fetch-traces]))
+        ]
 
     [rc/v-box
      :style (merge s/h-full s/flex s/flex-col s/bg-gray-900 )
      :children
      [;; Header
-      [rc/v-box
-       :style (merge s/p-4  )
-       :children
-       [;; Title and refresh button
-        [rc/h-box
-         :style (merge s/flex s/items-center s/justify-between s/mb-3)
-         :children
-         [[:h2 {:style (merge s/text-lg s/font-bold s/text-gray-100)} "traces"]
-          [:button {:style (merge s/px-2 s/py-1 s/text-xs s/rounded s/border
-                                 {:background-color (if refresh-hover?
-                                                      (:gray-700 s/colors)
-                                                      (:gray-800 s/colors))
-                                  :color (:gray-300 s/colors)
-                                  :border-color (:gray-600 s/colors)
-                                  :cursor "pointer"})
-                    :on-mouse-enter #(set-hover :refresh-btn true)
-                    :on-mouse-leave #(set-hover :refresh-btn false)
-                    :on-click on-refresh}
-           "↻ Refresh"]]]
+      ;; [rc/v-box
+      ;;  :style (merge s/p-4  )
+      ;;  :children
+      ;;  [;; Title and refresh button
+      ;;   ;; [rc/h-box
+      ;;   ;;  :style (merge s/flex s/items-center s/justify-between s/mb-3)
+      ;;   ;;  :children
+      ;;   ;;  [[:h2 {:style (merge s/text-lg s/font-bold s/text-gray-100)} "traces"]
+      ;;   ;;   [:button {:style (merge s/px-2 s/py-1 s/text-xs s/rounded s/border
+      ;;   ;;                          {:background-color (if refresh-hover?
+      ;;   ;;                                               (:gray-700 s/colors)
+      ;;   ;;                                               (:gray-800 s/colors))
+      ;;   ;;                           :color (:gray-300 s/colors)
+      ;;   ;;                           :border-color (:gray-600 s/colors)
+      ;;   ;;                           :cursor "pointer"})
+      ;;   ;;             :on-mouse-enter #(set-hover :refresh-btn true)
+      ;;   ;;             :on-mouse-leave #(set-hover :refresh-btn false)
+      ;;   ;;             :on-click on-refresh}
+      ;;   ;;    "↻ Refresh"]]]
 
-        ;; SSE status indicator
-        [rc/h-box
-         :style (merge s/flex s/items-center s/text-xs)
-         :children
-         [(cond
-           sse-connected
-           [rc/h-box
-            :style (merge s/flex s/items-center)
-            :children
-            [[:span {:style (merge s/w-2 s/h-2 s/bg-green-400 s/rounded-full s/mr-2 s/animate-pulse)} ""]
-             [:span {:style s/text-green-400} "Live"]]]
+      ;;   ;; SSE status indicator
+      ;;   ;; [rc/h-box
+      ;;   ;;  :style (merge s/flex s/items-center s/text-xs)
+      ;;   ;;  :children
+      ;;   ;;  [(cond
+      ;;   ;;    sse-connected
+      ;;   ;;    [rc/h-box
+      ;;   ;;     :style (merge s/flex s/items-center)
+      ;;   ;;     :children
+      ;;   ;;     [[:span {:style (merge s/w-2 s/h-2 s/bg-green-400 s/rounded-full s/mr-2 s/animate-pulse)} ""]
+      ;;   ;;      [:span {:style s/text-green-400} "Live"]]]
 
-           sse-reconnecting
-           [rc/h-box
-            :style (merge s/flex s/items-center)
-            :children
-            [[:span {:style (merge s/w-2 s/h-2 s/bg-yellow-400 s/rounded-full s/mr-2 s/animate-pulse)} ""]
-             [:span {:style (merge s/text-xs {:color (:yellow-400 s/colors)})} "Reconnecting..."]]]
+      ;;   ;;    sse-reconnecting
+      ;;   ;;    [rc/h-box
+      ;;   ;;     :style (merge s/flex s/items-center)
+      ;;   ;;     :children
+      ;;   ;;     [[:span {:style (merge s/w-2 s/h-2 s/bg-yellow-400 s/rounded-full s/mr-2 s/animate-pulse)} ""]
+      ;;   ;;      [:span {:style (merge s/text-xs {:color (:yellow-400 s/colors)})} "Reconnecting..."]]]
 
-           :else
-           [:span {:style (merge s/text-xs {:color (:gray-500 s/colors)})} "Offline"])]]]]
+      ;;   ;;    :else
+      ;;   ;;    [:span {:style (merge s/text-xs {:color (:gray-500 s/colors)})} "Offline"])]]
+      ;;   ]]
 
       ;; Trace count
       [rc/box

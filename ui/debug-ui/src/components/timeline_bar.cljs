@@ -18,21 +18,33 @@
 (defn is-segment-hovering? [seg-id]
   (contains? @segment-hover seg-id))
 
-(def pastel-colors
-  "Subdued pastel colors that harmonize with the dark theme"
-  ["#7dd3fc"  ; Sky blue
-   "#a7f3d0"  ; Mint green
-   "#fde68a"  ; Soft yellow
-   "#d8b4fe"  ; Lavender
-   "#fca5a5"  ; Soft pink
-   "#a5f3fc"  ; Cyan
-   "#c4b5fd"  ; Purple
-   "#fcd34d"  ; Amber
-   "#86efac"  ; Green
-   "#f9a8d4"  ; Pink
-   "#93c5fd"  ; Blue
-   "#bef264"  ; Lime
+(def spectral-colors
+  "Spectral temperature scale from hot (red) to cold (blue/purple)"
+  ["#9e0142"  ; Deep red (hottest)
+   "#d53e4f"  ; Red
+   "#f46d43"  ; Orange-red
+   "#fdae61"  ; Orange
+   "#fee08b"  ; Yellow-orange
+   "#ffffbf"  ; Pale yellow (neutral)
+   "#e6f598"  ; Yellow-green
+   "#abdda4"  ; Light green
+   "#66c2a5"  ; Teal
+   "#3288bd"  ; Blue
+   "#5e4fa2"  ; Purple (coldest)
    ])
+
+(defn duration-to-color
+  "Map duration to spectral color - longer durations are hotter"
+  [duration min-duration max-duration]
+  (if (= min-duration max-duration)
+    (nth spectral-colors (quot (count spectral-colors) 2))  ; Middle color if all same
+    (let [;; Normalize to 0-1 range
+          normalized (/ (- duration min-duration)
+                        (- max-duration min-duration))
+          ;; Map to color index (invert so long = hot = index 0)
+          color-idx (Math/round (* (- 1 normalized)
+                                   (dec (count spectral-colors))))]
+      (nth spectral-colors color-idx))))
 
 (defn extract-node-durations
   "Extract durations from execution events, matching enter/exit pairs"
@@ -68,6 +80,7 @@
          vals
          (filter :duration)
          (sort-by :enter-time)
+         ;(sort-by :exit-time)
          vec)))
 
 (defn smart-scale
@@ -80,8 +93,8 @@
 
         ;; Bonus width: proportional to actual duration (60% of total space)
         proportion (if (zero? total-duration)
-                    (/ 1.0 num-segments)
-                    (/ value total-duration))
+                     (/ 1.0 num-segments)
+                     (/ value total-duration))
         bonus-share (* 0.6 proportion)
 
         ;; Total width for this segment
@@ -90,14 +103,29 @@
     ;; Ensure minimum visibility
     (max 0.05 total-share)))
 
+(defn create-stripe-background
+  "Create a diagonal stripe pattern for selected segments"
+  [color]
+  (str "repeating-linear-gradient("
+       "45deg, "
+       color ", "
+       color " 18px, "
+       ;"rgba(0, 0, 0, 0.09) 10px, "
+       "rgba(0, 0, 0, 0.09) 2px, "
+       ;"rgba(0,0,0,0.03) 20px)"
+       color " 20px"
+       ))
+
 (defn timeline-bar
   [{:keys [events max-width selected-node-id trace-id is-executing]}]
   (let [trace-id-stable (str trace-id)
         durations (extract-node-durations events)
         prefix-node-id (fn [node-id] (str trace-id-stable "-" node-id))
         total-duration (reduce + 0 (map :duration durations))
-        min-duration (apply min 1 (map :duration durations))
-        max-duration (apply max 1 (map :duration durations))]
+        ;; Calculate min/max for color mapping
+        duration-values (map :duration durations)
+        min-duration (if (seq duration-values) (apply min duration-values) 0)
+        max-duration (if (seq duration-values) (apply max duration-values) 0)]
 
     (if (seq durations)
       [rc/h-box
@@ -106,75 +134,91 @@
        [;; Timeline bar container
         [:div
          {:style (merge s/flex s/h-10 s/rounded-lg
-                       {:flex "1"
-                        :overflow "hidden"
-                        :background-color "#1e293b"
-                        :box-shadow "inset 0 2px 4px rgba(0,0,0,0.3)"
-                        :border "1px solid #334155"})}
+                        {:flex "1"
+                         :overflow "hidden"
+                         :background-color "#1e293b"
+                         :box-shadow "inset 0 2px 4px rgba(0,0,0,0.3)"
+                         :border "1px solid #334155"})}
 
          ;; Each segment
          (for [[idx {:keys [duration label node-id enter-time exit-time]}] (map-indexed vector durations)]
            (let [seg-id (str "seg-" idx)
                  hovering? (is-segment-hovering? seg-id)
-                 color (nth pastel-colors (mod idx (count pastel-colors)))
+                 color (duration-to-color duration min-duration max-duration)
                  width-pct (* 100 (smart-scale duration total-duration (count durations)))
                  prefixed-node-id (prefix-node-id node-id)
                  is-selected? (= prefixed-node-id selected-node-id)
                  is-segment-executing? (and is-executing
-                                           enter-time
-                                           (not exit-time))]
+                                            enter-time
+                                            (not exit-time))
+                 is-first? (= idx 0)
+                 is-last? (= idx (dec (count durations)))
+                 ;; Only show duration text if segment is wide enough
+                 show-duration? (> width-pct 5)]
              [:div
               {:key seg-id
                :style {:width (str width-pct "%")
                        :height "100%"
-                       :background-color color
+                       :background (if is-selected?
+                                     (create-stripe-background color)
+                                     color)
+                       :background-color (when (not is-selected?) color)
                        :opacity (cond
-                                 is-selected? 1.0
-                                 is-segment-executing? 0.95
-                                 hovering? 1.0
-                                 :else 0.8)
+                                  is-selected? 1.0
+                                  is-segment-executing? 0.95
+                                  hovering? 1.0
+                                  :else 0.85)
                        :cursor "pointer"
                        :flex-shrink 0
                        :transition "all 0.2s"
-                       :transform (if is-selected? "scaleY(1.15)" "scaleY(1)")
+                       :transform (if is-selected? "scaleY(1.1)" "scaleY(1)")
                        :box-shadow (cond
-                                    is-selected? (str "0 0 10px " color)
-                                    is-segment-executing? (str "0 0 15px " color ", inset 0 0 10px rgba(255,255,255,0.2)")
-                                    :else "none")
-                       :outline (if is-selected? "2px solid #0B1629FF" "none")
-                       :outline-offset (if is-selected? "-2px" "0")
+                                     is-selected? (str "0 0 20px " color ", inset 0 0 15px rgba(255,255,255,0.3)")
+                                     is-segment-executing? (str "0 0 15px " color ", inset 0 0 10px rgba(255,255,255,0.2)")
+                                     :else "none")
+                       ;; Add borders between segments
+                       :border-left (if is-first? "none" "1px solid rgba(0,0,0,0.4)")
+                       :border-right (if is-last? "none" "1px solid rgba(0,0,0,0.4)")
                        :z-index (if is-selected? 10 1)
                        :animation (if is-segment-executing? "timeline-pulse 1s ease-in-out infinite" "none")
-                       :position "relative"}
+                       :position "relative"
+                       :display "flex"
+                       :align-items "center"
+                       :justify-content "center"}
                :title (str label " - " duration "ms")
                :on-mouse-enter #(add-hover seg-id)
                :on-mouse-leave #(remove-hover seg-id)
                :on-click (fn [e]
-                          (.preventDefault e)
-                          (when prefixed-node-id
-                            (rf/dispatch [::events/select-node prefixed-node-id])))}
+                           (.preventDefault e)
+                           (when prefixed-node-id
+                             (rf/dispatch [::events/select-node prefixed-node-id])))}
+
+              ;; Duration text inside segment (if space permits)
+              (when show-duration?
+                [:div
+                 {:style {:color (if is-selected? "#ffffff" "rgba(0,0,0,0.7)")
+                          :font-size "11px"
+                          :font-weight "bold"
+                          :text-shadow "1px 1px 2px rgba(0,0,0,0.4)"
+                          :pointer-events "none"}}
+                 (str duration "ms")])
 
               ;; Tooltip on hover
               [:div
                {:style (merge s/absolute s/pointer-events-none
-                             {:bottom "100%"
-                              :left "50%"
-                              :transform "translateX(-50%)"
-                              :margin-bottom "0.5rem"
-                              :opacity (if hovering? 1 0)
-                              :transition "opacity 0.2s"
-                              :z-index 1000})}
+                              {:bottom "100%"
+                               :left "50%"
+                               :transform "translateX(-50%)"
+                               :margin-bottom "0.5rem"
+                               :opacity (if hovering? 1 0)
+                               :transition "opacity 0.2s"
+                               :z-index 1000})}
                [:div
                 {:style (merge s/bg-gray-900 s/text-white s/text-xs s/px-2 s/py-1
-                              s/rounded s/whitespace-nowrap s/shadow-lg
-                              {:border (str "1px solid " color)})}
+                               s/rounded s/whitespace-nowrap s/shadow-lg
+                               {:border (str "1px solid " color)})}
                 [:div {:style s/font-medium} label]
-                [:div {:style s/text-gray-400} (str duration "ms")]]]]))]
-
-        ;; Total duration label
-        [:div
-         {:style (merge s/text-xs s/text-gray-400 s/font-mono s/whitespace-nowrap)}
-         (str total-duration "ms")]]]
+                [:div {:style s/text-gray-400} (str duration "ms")]]]]))]]]
 
       ;; No durations - return empty div
       [:div])))
