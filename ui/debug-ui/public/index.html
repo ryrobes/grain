@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grain Debug Tracer</title>
+
+    <!-- React Flow styles (required) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow@11.10.4/dist/style.min.css">
+
+    <!-- Prism.js for JSON syntax highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300..700&family=Outfit:wght@100..900&display=swap" rel="stylesheet">
+
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit';
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+                'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+                sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background-color: #0B1629FF;
+            
+            color: #e2e8f0;
+        }
+
+        #app {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        code {
+            font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+        }
+
+        /* React Flow base styles */
+        .react-flow {
+            background-color: #1e293b;
+        }
+
+        .react-flow__node {
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 16px;
+            font-weight: 500;
+            border: 2px solid;
+            background-color: #1e293b;
+            color: #e2e8f0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+            min-width: 320px;  /* Increased from default for better readability */
+            /* Allow wrapping on underscores */
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+
+        .react-flow__node.pending {
+            border-color: #64748b;
+            background-color: #334155;
+        }
+
+        .react-flow__node.executing {
+            border-color: #fcd34d !important;
+            background-color: #451a03 !important;
+            animation: node-pulse 1.5s ease-in-out infinite !important;
+            color: #fbbf24 !important;
+        }
+
+        .react-flow__node.success {
+            border-color: #6ee7b7;  /* Mint/teal - much softer */
+            background-color: #337261;
+        }
+
+        .react-flow__node.failure {
+            border-color: #fca5a5;  /* Soft pink/salmon - not bright red */
+            background-color: #450a0a;
+        }
+
+        .react-flow__node.skipped {
+            border-color: #475569;
+            background-color: #000000;
+            opacity: 0.6;
+        }
+
+        /* Command/Query/Event Modeling node types - Color-coded borders */
+        .react-flow__node.command.success {
+            border-color: #3b82f6 !important;  /* Blue for commands */
+            background-color: #1e3a5f !important;
+        }
+
+        .react-flow__node.query.success {
+            border-color: #10b981 !important;  /* Green for queries */
+            background-color: #1a4d3a !important;
+        }
+
+        .react-flow__node.computation.success {
+            border-color: #f59e0b !important;  /* Orange for computations */
+            background-color: #4a3010 !important;
+        }
+
+        /* Also apply to pending state */
+        .react-flow__node.command.pending {
+            border-color: #60a5fa !important;
+            background-color: #1e3a5f !important;
+        }
+
+        .react-flow__node.query.pending {
+            border-color: #34d399 !important;
+            background-color: #1a4d3a !important;
+        }
+
+        .react-flow__node.computation.pending {
+            border-color: #fbbf24 !important;
+            background-color: #4a3010 !important;
+        }
+
+        /* Conditional nodes - Pastel yellow with dark text */
+        .react-flow__node.conditional.success {
+            border-color: #fde047 !important;  /* Pastel yellow */
+            background-color: #fef3c7 !important;  /* Light yellow background */
+            color: #1f2937 !important;  /* Dark text for contrast */
+        }
+
+        .react-flow__node.conditional.pending {
+            border-color: #fde68a !important;  /* Lighter yellow */
+            background-color: #fef3c7 !important;
+            color: #374151 !important;
+        }
+
+        .react-flow__node.conditional.failure {
+            border-color: #fca5a5 !important;  /* Keep red for failures */
+            background-color: #450a0a !important;
+            color: #e2e8f0 !important;  /* Light text on dark background */
+        }
+
+        /* Branch hub nodes (fallback/parallel junctions) */
+        .react-flow__node.branch-hub {
+            width: 12px !important;
+            height: 12px !important;
+            min-width: 12px !important;
+            padding: 0 !important;
+            border-radius: 50% !important;
+            background-color: #64748b !important;
+            border: 2px solid #94a3b8 !important;
+            cursor: default !important;
+            box-shadow: 0 0 8px rgba(148, 163, 184, 0.5) !important;
+        }
+
+        /* Hide text in branch hubs */
+        .react-flow__node.branch-hub .react-flow__node-default {
+            display: none;
+        }
+
+        /* Make annotation node handles small and subtle */
+        .react-flow__node.annotation-node .react-flow__handle {
+            width: 6px !important;
+            height: 6px !important;
+            background: #a78bfa !important;
+            border: 1px solid #334155 !important;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.7;
+            }
+        }
+
+        /* Enhanced pulse animation for executing nodes */
+        @keyframes node-pulse {
+            0%, 100% {
+                opacity: 1;
+                box-shadow: 0 0 10px #fcd34d, 0 0 20px rgba(252, 211, 77, 0.4);
+            }
+            50% {
+                opacity: 0.85;
+                box-shadow: 0 0 20px #fcd34d, 0 0 35px rgba(252, 211, 77, 0.7);
+            }
+        }
+
+        /* Timeline bar segment pulse animation */
+        @keyframes timeline-pulse {
+            0%, 100% {
+                opacity: 0.95;
+            }
+            50% {
+                opacity: 1;
+            }
+        }
+
+        .react-flow__edge-path {
+            stroke: #94a3b8 !important;
+            stroke-width: 2 !important;
+        }
+
+        .react-flow__edge {
+            pointer-events: all !important;
+        }
+
+        .react-flow__edge.animated .react-flow__edge-path {
+            stroke: #3b82f6;
+            stroke-width: 3;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        /* Prism.js theme overrides for better dark mode integration */
+        pre[class*="language-"] {
+            background-color: #1e293b !important;
+            margin: 0;
+            padding: 0;
+        }
+
+        code[class*="language-"] {
+            background-color: transparent !important;
+            color: #e2e8f0;
+            font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        /* JSON syntax highlighting colors */
+        .token.property {
+            color: #7dd3fc !important; /* Sky blue for keys */
+        }
+
+        .token.string {
+            color: #a7f3d0 !important; /* Mint green for strings */
+        }
+
+        .token.number {
+            color: #fbbf24 !important; /* Amber for numbers */
+        }
+
+        .token.boolean,
+        .token.null {
+            color: #c084fc !important; /* Purple for booleans/null */
+        }
+
+        .token.punctuation {
+            color: #94a3b8 !important; /* Slate gray for brackets/commas */
+        }
+
+        /* Prism highlighting inside React Flow annotation nodes */
+        .react-flow__node.annotation-node pre[class*="language-"],
+        .react-flow__node.annotation-node code[class*="language-"] {
+            background-color: transparent !important;
+            margin: 0;
+            padding: 0;
+            font-size: 10px;
+            line-height: 1.4;
+        }
+
+        .react-flow__node.annotation-node .token.property {
+            color: #7dd3fc !important; /* Sky blue */
+            font-weight: 500;
+        }
+
+        .react-flow__node.annotation-node .token.string {
+            color: #a7f3d0 !important; /* Mint green */
+        }
+
+        .react-flow__node.annotation-node .token.number {
+            color: #fde047 !important; /* Yellow */
+        }
+
+        .react-flow__node.annotation-node .token.boolean,
+        .react-flow__node.annotation-node .token.null {
+            color: #d8b4fe !important; /* Light purple */
+        }
+
+        /* Annotation node header */
+        .react-flow__node.annotation-node .text-gray-400 {
+            opacity: 0.8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+    </style>
+</head>
+<body>
+    <!-- Configuration: Set apiBase before loading the app -->
+    <script>
+        window.GRAIN_DEBUG_CONFIG = {
+            // API base URL - change this to point to your Grain application
+            apiBase: window.location.protocol + '//' + window.location.hostname + ':8080'
+            // Or set explicitly: apiBase: 'http://localhost:8080'
+        };
+    </script>
+
+    <div id="app"></div>
+    <script src="/js/main.js"></script>
+</body>
+</html>

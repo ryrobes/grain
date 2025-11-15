@@ -1,61 +1,35 @@
-(ns ai.obney.grain.example-base.core
+(ns ai.obney.grain.debug-example-base.core
+  "Minimal example base for testing the debug UI with behavior trees."
   (:require [ai.obney.grain.command-request-handler.interface :as crh]
             [ai.obney.grain.query-request-handler.interface :as qrh]
-            [ai.obney.grain.periodic-task.interface :as pt]
             [ai.obney.grain.event-store-v2.interface :as es]
-            [ai.obney.grain.event-store-postgres-v2.interface]
             [ai.obney.grain.webserver.interface :as ws]
             [ai.obney.grain.pubsub.interface :as ps]
-            [ai.obney.grain.todo-processor.interface :as tp]
-            [ai.obney.grain.mulog-aws-cloudwatch-emf-publisher.interface :as cloudwatch-emf]
             [ai.obney.grain.debug-routes.interface :as debug-routes]
+            [ai.obney.grain.mulog-aws-cloudwatch-emf-publisher.interface :as cloudwatch-emf]
             [clojure.set :as set]
             [com.brunobonacci.mulog :as u]
             [integrant.core :as ig]
             [nrepl.server :as nrepl]
 
-            [ai.obney.grain.example-service.interface
+            [ai.obney.grain.debug-example-service.interface
              [commands :as commands]
              [queries :as queries]
-             [todo-processors :as todo-processors]
-             [periodic-tasks :as periodic-tasks]
              [schemas]]))
 
 ;; --------------------- ;;
 ;; Service Configuration ;;
 ;; --------------------- ;;
 
-;;
-;; This will be deleted later, just for testing ;;
-;;
-
-
 (def system
   {::logger {}
+
    ::event-store {:logger (ig/ref ::logger)
                   :event-pubsub (ig/ref ::event-pubsub)
-                  :conn {:type :in-memory ;; change to :postgres to try Postgres
-                         ;; uncomment below to try Postgres
-                         #_#_#_#_#_#_#_#_#_#_:server-name "localhost"
-                         :port-number "5433"
-                         :username "postgres"
-                         :password "password"
-                         :database-name "obneyai"}}
+                  :conn {:type :in-memory}}
 
    ::event-pubsub {:type :core-async
                    :topic-fn :event/type}
-
-   ::example-periodic-task
-   {:handler-fn #'periodic-tasks/example-periodic-task
-    :schedule {:every 30 :duration :seconds}
-    :context (ig/ref ::context)
-    :task-name ::example-periodic-task}
-
-   ::calculate-average-counter-value-todo-processor
-   {:event-pubsub (ig/ref ::event-pubsub)
-    :topics [:example/counter-incremented :example/counter-decremented]
-    :handler-fn #'todo-processors/calculate-average-counter-value
-    :context (ig/ref ::context)}
 
    ::context {:event-store (ig/ref ::event-store)
               :command-registry commands/commands
@@ -69,8 +43,6 @@
                 :http/join? false}
 
    ::nrepl {:bind "0.0.0.0" :port 7888}})
-
-
 
 ;; -------------- ;;
 ;; Integrant Keys ;;
@@ -104,21 +76,6 @@
 (defmethod ig/halt-key! ::event-pubsub [_ event-pubsub]
   (ps/stop event-pubsub))
 
-(defmethod ig/init-key ::calculate-average-counter-value-todo-processor [_ config]
-  (tp/start config))
-
-(defmethod ig/halt-key! ::calculate-average-counter-value-todo-processor [_ todo-processor]
-  (tp/stop todo-processor))
-
-(defmethod ig/init-key ::example-periodic-task [_ config]
-  (pt/start
-   {:handler-fn (partial (:handler-fn config) (:context config))
-    :schedule (:schedule config)
-    :task-name (:task-name config)}))
-
-(defmethod ig/halt-key! ::example-periodic-task [_ task]
-  (pt/stop task))
-
 (defmethod ig/init-key ::context [_ context]
   context)
 
@@ -148,12 +105,13 @@
 (defn start
   []
   (u/set-global-context!
-   {:app-name "example-app" :env "dev"})
+   {:app-name "grain-debug-demo" :env "dev"})
+  (u/log ::starting-debug-demo)
   (ig/init system))
 
 (defn stop
-  [rag-service]
-  (ig/halt! rag-service))
+  [app]
+  (ig/halt! app))
 
 ;; -------------- ;;
 ;; Runtime System ;;
@@ -164,16 +122,37 @@
 (defn -main
   [& _]
   (reset! app (start))
-  (u/log ::app-started)
+  (u/log ::app-started
+         :port 8080
+         :debug-ui "http://localhost:8082"
+         :commands [:debug-example/simple-task
+                    :debug-example/robot-mission
+                    :debug-example/make-decision
+                    :debug-example/parallel-tasks
+                    :debug-example/error-handling])
   (.addShutdownHook (Runtime/getRuntime)
                     (Thread. #(do
                                 (u/log ::stopping-app)
                                 (stop @app)))))
 
 (comment
-  
+  ;; Start the system
   (def app (start))
-  
-  
-  
+
+  ;; Load helper functions
+  (require '[ai.obney.grain.debug-example-base.helpers :as h])
+
+  ;; Run individual commands
+  (h/run-command app :debug-example/simple-task)
+  (h/run-command app :debug-example/robot-mission)
+  (h/run-command app :debug-example/make-decision)
+  (h/run-command app :debug-example/parallel-tasks)
+  (h/run-command app :debug-example/error-handling)
+
+  ;; Or run all commands in sequence
+  (h/run-all app)
+
+  ;; Stop the system
+  (stop app)
+
   "")

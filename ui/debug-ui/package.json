@@ -1,0 +1,19 @@
+{
+  "name": "grain-debug-ui",
+  "version": "0.1.0",
+  "description": "Debug UI for Grain behavior tree tracing",
+  "private": true,
+  "scripts": {
+    "dev": "shadow-cljs watch app",
+    "build": "shadow-cljs release app",
+    "clean": "rm -rf .shadow-cljs public/js"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "reactflow": "^11.10.4"
+  },
+  "devDependencies": {
+    "shadow-cljs": "^2.28.7"
+  }
+}

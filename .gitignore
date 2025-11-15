@@ -14,6 +14,12 @@
 .idea/dictionaries/**
 .idea/libraries/**
 
+# debug ui
+node_modules
+cljs-runtime
+.shadow-cljs
+.clj-kondo
+
 # File-based project format
 *.iws
 *.ipr

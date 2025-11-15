@@ -1,0 +1,6 @@
+{:paths ["src" "resources"]
+ :deps {io.pedestal/pedestal.service {:mvn/version "0.7.0"}
+        com.cognitect/transit-clj {:mvn/version "1.0.333"}
+        org.clojure/core.async {:mvn/version "1.6.681"}}
+ :aliases {:test {:extra-paths ["test"]
+                  :extra-deps {}}}}

@@ -1,0 +1,20 @@
+{:paths ["src"]
+
+ :deps {org.clojure/clojurescript {:mvn/version "1.11.60"}
+        thheller/shadow-cljs {:mvn/version "2.28.7"}
+
+        ;; Re-frame
+        re-frame/re-frame {:mvn/version "1.4.3"}
+
+        ;; React wrapper - Reagent + re-com
+        reagent/reagent {:mvn/version "1.2.0"}
+        re-com/re-com {:mvn/version "2.19.0"}
+
+        ;; HTTP client
+        cljs-ajax/cljs-ajax {:mvn/version "0.8.4"}
+
+        ;; Transit for data serialization
+        com.cognitect/transit-cljs {:mvn/version "0.8.280"}
+
+        ;; Dev tools
+        binaryage/devtools {:mvn/version "1.0.7"}}}
