@@ -48,6 +48,24 @@ In your REPL (Terminal 1), run:
 
 Watch the traces appear in real-time at http://localhost:8082!
 
+### Alternative: Use HTTP REST API
+
+```bash
+cd /home/ryanr/repos/grain
+
+# Send commands via HTTP (Transit JSON)
+clj -Sdeps '{:deps {com.cognitect/transit-clj {:mvn/version "1.0.333"}}}' -M send-command.clj debug-example/simple-task
+clj -Sdeps '{:deps {com.cognitect/transit-clj {:mvn/version "1.0.333"}}}' -M send-command.clj debug-example/robot-mission
+```
+
+Or use curl directly (Transit JSON format):
+
+```bash
+curl -X POST http://localhost:8080/command \
+  -H "Content-Type: application/transit+json" \
+  -d '["^ ","~:command",["^ ","~:command/name","~:debug-example/simple-task"]]'
+```
+
 ## What You'll See
 
 - 🌳 **Tree Visualization** - Interactive behavior tree diagram
