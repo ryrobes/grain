@@ -154,6 +154,7 @@
 
     ;; Apply status classes and glow to nodes
     (let [executing-set (set executing-nodes)
+          trace-still-executing is-executing  ; Use the existing is-executing variable
 
           ;; Build map of node-id to execution order (timeline index)
           node-to-timeline-idx (when selected-node
@@ -170,6 +171,21 @@
                                                       [node-id idx])
                                                     node-durations))))
 
+          ;; Helper: Get node's primary color based on status and classification
+          get-node-color (fn [status classification]
+                          (cond
+                            ;; Classification colors (when succeeded)
+                            (and (= status "success") (= classification "command")) "#3b82f6"
+                            (and (= status "success") (= classification "query")) "#10b981"
+                            (and (= status "success") (= classification "computation")) "#f59e0b"
+                            (and (= status "success") (= classification "conditional")) "#fde047"
+                            ;; Status colors (default)
+                            (= status "success") "#6ee7b7"
+                            (= status "failure") "#fca5a5"
+                            (= status "executing") "#fcd34d"
+                            (= status "skipped") "#475569"
+                            :else "#64748b"))  ; pending
+
           nodes-enhanced (mapv
                          (fn [node]
                            (let [node-id (:id node)
@@ -177,6 +193,7 @@
                                  is-executing? (contains? executing-set unprefixed-id)
                                  is-selected? (= node-id selected-node)
                                  current-class (:className node)
+                                 status (get node-status-map unprefixed-id :pending)
 
                                  ;; Determine node classification
                                  node-classification (cond
@@ -189,35 +206,79 @@
                                  ;; Combine status class with classification
                                  combined-class (if node-classification
                                                  (str current-class " " node-classification)
-                                                 current-class)]
+                                                 current-class)
 
-                             (cond 
-                               ;; Selected node - add glow with timeline color
+                                 ;; Dim unexecuted nodes after trace completes
+                                 is-unexecuted? (and (not is-executing?)
+                                                    (= status :pending)
+                                                    (not trace-still-executing))
+                                 opacity (if is-unexecuted? 0.3 1.0)
+
+                                 ;; Get node's color for selection glow
+                                 node-color (get-node-color current-class node-classification)]
+
+                             (cond
+                               ;; Selected node - add glow with node's own color
                                is-selected?
-                               (let [timeline-idx (get node-to-timeline-idx unprefixed-id 0)
-                                     color (nth flow-layout/pastel-colors (mod timeline-idx (count flow-layout/pastel-colors)))]
-                                 (-> node
-                                     (assoc :className combined-class)
-                                     (assoc :style (merge (:style node)
-                                                         {:box-shadow (str "0 0 20px " color ", 0 0 40px " color)
-                                                          :border-width "3px"
-                                                          :border-color color}))))
+                               (-> node
+                                   (assoc :className combined-class)
+                                   (assoc :style (merge (:style node)
+                                                       {:box-shadow (str "0 0 20px " node-color ", 0 0 40px " node-color)
+                                                        :border-width "3px"
+                                                        :opacity opacity})))
 
                                ;; Executing node - add executing class for animation
                                is-executing?
-                               (assoc node :className (str "executing " (or node-classification "")))
+                               (assoc node :className (str "executing " (or node-classification ""))
+                                      :style (merge (:style node) {:opacity 1.0}))
+
+                               ;; Unexecuted node - dim it
+                               is-unexecuted?
+                               (-> node
+                                   (assoc :className combined-class)
+                                   (assoc :style (merge (:style node) {:opacity opacity})))
 
                                ;; Default - apply classification if present
                                :else
-                               (assoc node :className combined-class))))
-                         nodes)]
+                               (-> node
+                                   (assoc :className combined-class)
+                                   (assoc :style (merge (:style node) {:opacity 1.0}))))))
+                         nodes)
+
+          ;; Dim edges to unexecuted nodes
+          edges-enhanced (mapv
+                         (fn [edge]
+                           (let [source-id (:source edge)
+                                 target-id (:target edge)
+
+                                 ;; Check if source or target is a hub node (synthetic)
+                                 is-source-hub? (or (clojure.string/starts-with? source-id "branch-")
+                                                   (clojure.string/starts-with? source-id "merge-"))
+                                 is-target-hub? (or (clojure.string/starts-with? target-id "branch-")
+                                                   (clojure.string/starts-with? target-id "merge-"))
+
+                                 ;; For non-hub nodes, check execution status
+                                 unprefixed-target (when-not is-target-hub?
+                                                    (last (clojure.string/split target-id #"-(?=\d)")))
+                                 target-status (when unprefixed-target
+                                                (get node-status-map unprefixed-target :pending))
+
+                                 ;; Dim if: target is real node (not hub), never executed, and trace complete
+                                 is-unexecuted? (and (not is-target-hub?)  ; Real node, not hub
+                                                    unprefixed-target
+                                                    (= target-status :pending)
+                                                    (not trace-still-executing))]
+                             (if is-unexecuted?
+                               (assoc edge :style {:opacity 0.3})
+                               edge)))
+                         edges)]
 
       (if has-data
         [:div {:style {:width "100%" :height "100%"}}
          [react-flow
           {:key (str "reactflow-" trace-id)  ; Unique key per trace
            :nodes (clj->js nodes-enhanced)
-           :edges (clj->js edges)
+           :edges (clj->js edges-enhanced)
            :nodeTypes #js {:annotation annotation-node
                           :event-annotation event-annotation-node
                           :read-model-annotation read-model-annotation-node

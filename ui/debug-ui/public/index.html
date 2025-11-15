@@ -73,6 +73,7 @@
             /* Allow wrapping on underscores */
             word-break: break-word;
             overflow-wrap: anywhere;
+            transition: opacity 0.3s ease, box-shadow 0.2s ease, border-width 0.2s ease;
         }
 
         .react-flow__node.pending {
@@ -214,6 +215,7 @@
         .react-flow__edge-path {
             stroke: #94a3b8 !important;
             stroke-width: 2 !important;
+            transition: opacity 0.3s ease;
         }
 
         .react-flow__edge {
@@ -223,6 +225,11 @@
         .react-flow__edge.animated .react-flow__edge-path {
             stroke: #3b82f6;
             stroke-width: 3;
+        }
+
+        /* Dimmed edges for unexecuted paths */
+        .react-flow__edge[style*="opacity: 0.3"] .react-flow__edge-path {
+            stroke: #475569 !important;
         }
 
         /* Scrollbar styling */
