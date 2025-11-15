@@ -156,10 +156,10 @@
       ;;   ]]
 
       ;; Trace count
-      [rc/box
-       :style (merge s/px-4 s/py-2  )
-       :child [:div {:style (merge s/text-sm s/text-gray-400)}
-               (str (count traces) " trace" (when (not= 1 (count traces)) "s"))]]
+      ;; [rc/box
+      ;;  :style (merge s/px-4 s/py-2  )
+      ;;  :child [:div {:style (merge s/text-sm s/text-gray-400)}
+      ;;          (str (count traces) " trace" (when (not= 1 (count traces)) "s"))]]
 
       ;; Trace list (scrollable)
       [rc/v-box
