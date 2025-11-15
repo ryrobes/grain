@@ -1,7 +1,9 @@
 (ns ai.obney.grain.debug-example-service.core.behavior-trees
   "Example behavior trees for testing the debug UI."
   (:require [ai.obney.grain.behavior-tree-v2.interface :as bt]
-            [ai.obney.grain.event-store-v2.interface :as es]))
+            [ai.obney.grain.event-store-v2.interface :as es]
+            [ai.obney.grain.behavior-tree-v2-dspy-extensions.interface :refer [dspy]]
+            [ai.obney.grain.debug-example-service.core.signatures :as sigs]))
 
 ;;
 ;; Example Behavior Trees
@@ -318,5 +320,126 @@
                    :event/timestamp (java.time.Instant/now)
                    :event/tags [[:operation aggregate-id]]
                    :attempts (:attempts @st-memory)}]
+        (es/append event-store {:events [event]})
+        bt/success))]])
+
+;;
+;; AI-Powered Behavior Trees (DSPy Examples)
+;;
+
+(def ai-question-answer-tree
+  "Answer a question using AI with chain-of-thought reasoning."
+  [:sequence
+   ;; Validate input
+   [:condition {:path [:question]}
+    (fn [{:keys [st-memory]}]
+      (not (clojure.string/blank? (:question @st-memory))))]
+
+   ;; Call AI
+   [:action {:id :ai-answer
+             :signature #'sigs/QuestionAnswerer
+             :operation :chain-of-thought}
+    dspy]
+
+   ;; Log result
+   [:action {:id :log-answer}
+    (fn [{:keys [st-memory]}]
+      (swap! st-memory update :logs (fnil conj [])
+             {:timestamp (java.time.Instant/now)
+              :message (str "AI answered: " (subs (:answer @st-memory) 0 (min 50 (count (:answer @st-memory)))) "...")})
+      bt/success)]
+
+   ;; Persist to event store
+   [:action {:id :save-qa}
+    (fn [{:keys [st-memory event-store]}]
+      (let [aggregate-id (random-uuid)
+            event {:event/type :ai/question-answered
+                   :event/id (random-uuid)
+                   :event/timestamp (java.time.Instant/now)
+                   :event/tags [[:ai-qa aggregate-id]]
+                   :question (:question @st-memory)
+                   :answer (:answer @st-memory)
+                   :reasoning (:reasoning @st-memory)}]
+        (es/append event-store {:events [event]})
+        bt/success))]])
+
+(def ai-story-generator-tree
+  "Generate a creative story using AI."
+  [:sequence
+   ;; Validate inputs
+   [:condition {:path [:genre]}
+    (fn [{:keys [st-memory]}]
+      (not (clojure.string/blank? (:genre @st-memory))))]
+
+   [:condition {:path [:characters]}
+    (fn [{:keys [st-memory]}]
+      (seq (:characters @st-memory)))]
+
+   ;; Generate story with AI
+   [:action {:id :generate-story
+             :signature #'sigs/StoryGenerator
+             :operation :chain-of-thought}
+    dspy]
+
+   ;; Log result
+   [:action {:id :log-story}
+    (fn [{:keys [st-memory]}]
+      (swap! st-memory update :logs (fnil conj [])
+             {:timestamp (java.time.Instant/now)
+              :message (str "Story generated (" (count (:story @st-memory)) " chars)")})
+      bt/success)]
+
+   ;; Save to event store
+   [:action {:id :save-story}
+    (fn [{:keys [st-memory event-store]}]
+      (let [aggregate-id (random-uuid)
+            event {:event/type :ai/story-generated
+                   :event/id (random-uuid)
+                   :event/timestamp (java.time.Instant/now)
+                   :event/tags [[:story aggregate-id]]
+                   :genre (:genre @st-memory)
+                   :characters (:characters @st-memory)
+                   :story (:story @st-memory)}]
+        (es/append event-store {:events [event]})
+        bt/success))]])
+
+(def ai-recipe-suggester-tree
+  "Suggest a recipe based on available items."
+  [:sequence
+   ;; Validate items
+   [:condition {:path [:available_items]}
+    (fn [{:keys [st-memory]}]
+      (seq (:available_items @st-memory)))]
+
+   ;; Call AI
+   [:action {:id :suggest-recipe
+             :signature #'sigs/RecipeSuggester
+             :operation :chain-of-thought}
+    dspy]
+
+   ;; Validate response
+   [:condition {:path [:recipe_title]}
+    (fn [{:keys [st-memory]}]
+      (not (clojure.string/blank? (:recipe_title @st-memory))))]
+
+   ;; Log result
+   [:action {:id :log-recipe}
+    (fn [{:keys [st-memory]}]
+      (swap! st-memory update :logs (fnil conj [])
+             {:timestamp (java.time.Instant/now)
+              :message (str "Recipe suggested: " (:recipe_title @st-memory))})
+      bt/success)]
+
+   ;; Save recipe
+   [:action {:id :save-recipe}
+    (fn [{:keys [st-memory event-store]}]
+      (let [aggregate-id (random-uuid)
+            event {:event/type :ai/recipe-suggested
+                   :event/id (random-uuid)
+                   :event/timestamp (java.time.Instant/now)
+                   :event/tags [[:recipe aggregate-id]]
+                   :title (:recipe_title @st-memory)
+                   :ingredients (:recipe_ingredients @st-memory)
+                   :instructions (:recipe_instructions @st-memory)}]
         (es/append event-store {:events [event]})
         bt/success))]])

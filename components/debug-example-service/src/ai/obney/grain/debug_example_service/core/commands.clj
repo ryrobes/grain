@@ -68,6 +68,53 @@
                            :trace-id (:trace-id trace)
                            :message "Error handling completed"}}))
 
+(defn ai-question-answer [context]
+  "Answer a question using AI with chain-of-thought reasoning."
+  (let [question (get-in context [:command :question])
+        build-context {:event-store (:event-store context)
+                       :st-memory {:question question :logs []}}
+        {:keys [result trace]} (debug/run-with-tracing
+                                 trees/ai-question-answer-tree
+                                 build-context
+                                 :debug-example/ai-question-answer
+                                 {:streaming? true})]
+    {:command-result/data {:result (if (= result :success) :success :failure)
+                           :trace-id (:trace-id trace)
+                           :answer (get-in trace [:execution-events])
+                           :message "AI question answered"}}))
+
+(defn ai-story-generator [context]
+  "Generate a creative story using AI."
+  (let [genre (get-in context [:command :genre] "fantasy")
+        characters (get-in context [:command :characters] ["Alice" "Bob"])
+        build-context {:event-store (:event-store context)
+                       :st-memory {:genre genre
+                                   :characters characters
+                                   :logs []}}
+        {:keys [result trace]} (debug/run-with-tracing
+                                 trees/ai-story-generator-tree
+                                 build-context
+                                 :debug-example/ai-story-generator
+                                 {:streaming? true})]
+    {:command-result/data {:result (if (= result :success) :success :failure)
+                           :trace-id (:trace-id trace)
+                           :message "Story generated"}}))
+
+(defn ai-recipe-suggester [context]
+  "Suggest a recipe based on available items."
+  (let [items (get-in context [:command :items] ["chicken" "rice" "onions" "garlic"])
+        build-context {:event-store (:event-store context)
+                       :st-memory {:available_items items
+                                   :logs []}}
+        {:keys [result trace]} (debug/run-with-tracing
+                                 trees/ai-recipe-suggester-tree
+                                 build-context
+                                 :debug-example/ai-recipe-suggester
+                                 {:streaming? true})]
+    {:command-result/data {:result (if (= result :success) :success :failure)
+                           :trace-id (:trace-id trace)
+                           :message "Recipe suggested"}}))
+
 (def commands
   {:debug-example/simple-task {:handler-fn #'simple-task
                                 :schema [:map]}
@@ -78,4 +125,14 @@
    :debug-example/parallel-tasks {:handler-fn #'parallel-tasks
                                    :schema [:map]}
    :debug-example/error-handling {:handler-fn #'error-handling
-                                   :schema [:map]}})
+                                   :schema [:map]}
+   ;; AI-powered commands
+   :debug-example/ai-question-answer {:handler-fn #'ai-question-answer
+                                       :schema [:map [:question :string]]}
+   :debug-example/ai-story-generator {:handler-fn #'ai-story-generator
+                                       :schema [:map
+                                                [:genre {:optional true} :string]
+                                                [:characters {:optional true} [:vector :string]]]}
+   :debug-example/ai-recipe-suggester {:handler-fn #'ai-recipe-suggester
+                                        :schema [:map
+                                                 [:items {:optional true} [:vector :string]]]}})

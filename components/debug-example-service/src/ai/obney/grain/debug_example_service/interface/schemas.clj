@@ -8,7 +8,14 @@
    :debug-example/robot-mission [:map]
    :debug-example/make-decision [:map]
    :debug-example/parallel-tasks [:map]
-   :debug-example/error-handling [:map]})
+   :debug-example/error-handling [:map]
+   ;; AI-powered commands
+   :debug-example/ai-question-answer [:map [:question :string]]
+   :debug-example/ai-story-generator [:map
+                                       [:genre {:optional true} :string]
+                                       [:characters {:optional true} [:vector :string]]]
+   :debug-example/ai-recipe-suggester [:map
+                                        [:items {:optional true} [:vector :string]]]})
 
 #_{:clojure-lsp/ignore [:clojure-lsp/unused-public-var]}
 (defschemas events

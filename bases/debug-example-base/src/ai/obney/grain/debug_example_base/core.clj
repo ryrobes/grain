@@ -15,7 +15,13 @@
             [ai.obney.grain.debug-example-service.interface
              [commands :as commands]
              [queries :as queries]
-             [schemas]]))
+             [schemas]]
+
+            [libpython-clj2.require :refer [require-python]]))
+
+;; Load Python dspy module at namespace level
+;; Python path configured via python.edn in project root
+(require-python '[dspy :as dspy])
 
 ;; --------------------- ;;
 ;; Service Configuration ;;
@@ -23,6 +29,8 @@
 
 (def system
   {::logger {}
+
+   ::dspy {}
 
    ::event-store {:logger (ig/ref ::logger)
                   :event-pubsub (ig/ref ::event-pubsub)
@@ -63,6 +71,30 @@
 
 (defmethod ig/halt-key! ::logger [_ stop-fn]
   (stop-fn))
+
+(defmethod ig/init-key ::dspy [_ _]
+  (let [api-key (System/getenv "OPENROUTER_API_KEY")
+        provider "openai/gpt-4o-mini"
+        api-base "https://openrouter.ai/api/v1"]
+
+    (when-not api-key
+      (u/log ::dspy-skipped :reason "OPENROUTER_API_KEY not set")
+      (println "⚠️  DSPy disabled: OPENROUTER_API_KEY not set (AI commands will fail)")
+      (println "   Set the env var and restart to enable AI features")
+      (throw (ex-info "No OPENROUTER_API_KEY found" {})))
+
+    (let [lm (dspy/LM provider
+                      :api_key api-key
+                      :api_base api-base
+                      :cache false)]
+      (dspy/configure :lm lm)
+      (u/log ::dspy-configured :provider provider)
+      (println "✅ DSPy configured with provider:" provider)
+      {:provider provider
+       :api-base api-base})))
+
+(defmethod ig/halt-key! ::dspy [_ _]
+  nil)
 
 (defmethod ig/init-key ::event-store [_ config]
   (es/start config))
@@ -129,7 +161,10 @@
                     :debug-example/robot-mission
                     :debug-example/make-decision
                     :debug-example/parallel-tasks
-                    :debug-example/error-handling])
+                    :debug-example/error-handling
+                    :debug-example/ai-question-answer
+                    :debug-example/ai-story-generator
+                    :debug-example/ai-recipe-suggester])
   (.addShutdownHook (Runtime/getRuntime)
                     (Thread. #(do
                                 (u/log ::stopping-app)
@@ -151,6 +186,14 @@
 
   ;; Or run all commands in sequence
   (h/run-all app)
+
+  ;; AI-powered commands (requires OPENROUTER_API_KEY env var)
+  (h/run-ai app :ai-question-answer {:question "What is quantum computing?"})
+  (h/run-ai app :ai-story-generator {:genre "sci-fi" :characters ["Zara" "Rex"]})
+  (h/run-ai app :ai-recipe-suggester {:items ["chicken" "rice" "curry"]})
+
+  ;; Or run AI demo
+  (h/demo-ai app)
 
   ;; Stop the system
   (stop app)

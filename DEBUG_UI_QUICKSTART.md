@@ -78,6 +78,28 @@ curl -X POST http://localhost:8080/command \
 
 See [bases/debug-example-base/README.md](bases/debug-example-base/README.md) for detailed documentation.
 
+## AI-Powered Commands (Bonus!)
+
+Try the AI demo with DSPy:
+
+```clojure
+(require '[ai.obney.grain.debug-example-base.helpers :as h])
+
+;; Run AI question answering
+(h/run-ai app :ai-question-answer {:question "What is quantum computing?"})
+
+;; Generate a story
+(h/run-ai app :ai-story-generator {:genre "sci-fi" :characters ["Zara" "Rex"]})
+
+;; Get a recipe suggestion
+(h/run-ai app :ai-recipe-suggester {:items ["chicken" "rice" "curry"]})
+
+;; Or run the full AI demo
+(h/demo-ai app)
+```
+
+See [AI_DEBUG_DEMO.md](AI_DEBUG_DEMO.md) for complete AI documentation.
+
 ## Integrating Into Your App
 
 ```clojure
