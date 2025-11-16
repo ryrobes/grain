@@ -1,5 +1,5 @@
 (ns components.trace-list
-  "Trace list sidebar component"
+  "Trace list sidebar component with accordion grouping"
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
             [re-com.core :as rc]
@@ -21,7 +21,7 @@
   [instant]
   (when instant
     (let [date (js/Date. instant)]
-      (.toLocaleTimeString date "en-US" #js {:hour "2-digit" :minute "2-digit"}))))
+      (.toLocaleTimeString date "en-US" #js {:hour "2-digit" :minute "2-digit" :second "2-digit"}))))
 
 (defn status-badge
   "Render status badge with color"
@@ -70,98 +70,106 @@
       (last parts))))
 
 (defn trace-item
+  "Render individual trace item (nested under group)"
   [{:keys [trace on-select selected?]}]
-  (let [{:keys [trace-id command-name started-at duration-ms status]} trace
-        base-style (merge s/p-3   s/cursor-pointer s/transition-colors)
+  (let [{:keys [trace-id started-at duration-ms status]} trace
+        base-style (merge s/cursor-pointer s/transition-colors
+                         {:padding "8px 12px 8px 28px"})  ; Left indent for nesting
         item-style (if selected?
                     (merge base-style
-                          s/bg-blue-900-30
-                          {:border-left (str "4px solid " (:blue-500 s/colors))})
-                    base-style)]
+                          {:background-color "rgba(59, 130, 246, 0.15)"
+                           :border-left (str "3px solid " (:blue-500 s/colors))})
+                    (merge base-style
+                          {:border-left "3px solid transparent"
+                           :hover {:background-color (:gray-850 s/colors)}}))]
     [rc/v-box
      :style item-style
      :attr {:on-click #(on-select trace-id)}
      :children
-     [;; Top row: command name and status
+     [;; Top row: timestamp and status
       [rc/h-box
        :style (merge s/flex s/items-start s/justify-between s/mb-1)
        :children
-       [[:span {:style (merge s/text-sm s/font-medium s/text-gray-200)}
-         (command-name-short command-name)]
+       [[:span {:style (merge s/text-xs s/text-gray-300)}
+         (format-timestamp started-at)]
         [status-badge status]]]
 
-      ;; Bottom row: timestamp and duration
-      [rc/h-box
-       :style (merge s/flex s/items-center s/justify-between)
+      ;; Bottom row: duration
+      [:span {:style (merge s/text-xs s/text-gray-500)} (str duration-ms "ms")]]]))
+
+(defn trace-group-header
+  "Render accordion group header with command name, count, and chevron"
+  [{:keys [command-name count expanded? on-toggle]}]
+  (let [hovering? (r/atom false)]
+    (fn [{:keys [command-name count expanded? on-toggle]}]
+      (let [chevron (if expanded? "▼" "▶")]
+        [:div {:style (merge s/px-3 s/py-2 s/cursor-pointer
+                            {:background-color (if @hovering?
+                                                (:gray-800 s/colors)
+                                                "#0f172a")
+                             :border-bottom (str "1px solid " (:gray-700 s/colors))
+                             :transition "background-color 0.15s ease"})
+               :on-mouse-enter #(reset! hovering? true)
+               :on-mouse-leave #(reset! hovering? false)
+               :on-click on-toggle}
+         [rc/h-box
+          :style (merge s/flex s/items-center s/justify-between)
+          :children
+          [;; Left: chevron and command name
+           [rc/h-box
+            :style (merge s/flex s/items-center s/gap-2)
+            :children
+            [[:span {:style (merge s/text-xs {:color (:gray-400 s/colors)
+                                              :width "12px"
+                                              :text-align "center"
+                                              :transition "transform 0.2s ease"
+                                              :display "inline-block"})} chevron]
+             [:span {:style (merge s/text-sm s/font-medium s/text-gray-200)}
+              (command-name-short command-name)]]]
+
+           ;; Right: count badge
+           [:span {:style (merge s/px-2 s/py-0-5 s/text-xs s/rounded
+                                {:background-color (:blue-900 s/colors)
+                                 :color (:blue-300 s/colors)
+                                 :font-weight "600"})}
+            count]]]]))))
+
+(defn trace-group
+  "Render a grouped set of traces with accordion"
+  [{:keys [command-name traces count expanded? current-trace on-select]}]
+  [rc/v-box
+   :style {:margin-bottom "0px"}
+   :children
+   [;; Group header
+    [trace-group-header
+     {:command-name command-name
+      :count count
+      :expanded? expanded?
+      :on-toggle #(rf/dispatch [::events/toggle-group command-name])}]
+
+    ;; Trace items (only if expanded)
+    (when expanded?
+      [rc/v-box
+       :style {:background-color (:gray-900 s/colors)}
        :children
-       [[:span {:style (merge s/text-xs s/text-gray-400)} (format-timestamp started-at)]
-        [:span {:style (merge s/text-xs s/text-gray-400)} (str duration-ms "ms")]]]]]))
+       (into []
+             (for [trace traces]
+               ^{:key (:trace-id trace)}
+               [trace-item
+                {:trace trace
+                 :on-select on-select
+                 :selected? (= (:trace-id trace) (:trace-id current-trace))}]))])]])
 
 (defn trace-list []
-  (let [traces @(rf/subscribe [::subs/traces])
+  (let [grouped-traces @(rf/subscribe [::subs/grouped-traces])
         loading @(rf/subscribe [::subs/loading])
         current-trace @(rf/subscribe [::subs/current-trace])
-        ;; sse-connected @(rf/subscribe [::subs/sse-connected])
-        ;; sse-reconnecting @(rf/subscribe [::subs/sse-reconnecting])
-        ;refresh-hover? (is-hovering? :refresh-btn)
-        on-select (fn [trace-id] (rf/dispatch [::events/select-trace trace-id]))
-        ;on-refresh (fn [] (rf/dispatch [::events/fetch-traces]))
-        ]
+        on-select (fn [trace-id] (rf/dispatch [::events/select-trace trace-id]))]
 
     [rc/v-box
-     :style (merge s/h-full s/flex s/flex-col s/bg-gray-900 )
+     :style (merge s/h-full s/flex s/flex-col s/bg-gray-900)
      :children
-     [;; Header
-      ;; [rc/v-box
-      ;;  :style (merge s/p-4  )
-      ;;  :children
-      ;;  [;; Title and refresh button
-      ;;   ;; [rc/h-box
-      ;;   ;;  :style (merge s/flex s/items-center s/justify-between s/mb-3)
-      ;;   ;;  :children
-      ;;   ;;  [[:h2 {:style (merge s/text-lg s/font-bold s/text-gray-100)} "traces"]
-      ;;   ;;   [:button {:style (merge s/px-2 s/py-1 s/text-xs s/rounded s/border
-      ;;   ;;                          {:background-color (if refresh-hover?
-      ;;   ;;                                               (:gray-700 s/colors)
-      ;;   ;;                                               (:gray-800 s/colors))
-      ;;   ;;                           :color (:gray-300 s/colors)
-      ;;   ;;                           :border-color (:gray-600 s/colors)
-      ;;   ;;                           :cursor "pointer"})
-      ;;   ;;             :on-mouse-enter #(set-hover :refresh-btn true)
-      ;;   ;;             :on-mouse-leave #(set-hover :refresh-btn false)
-      ;;   ;;             :on-click on-refresh}
-      ;;   ;;    "↻ Refresh"]]]
-
-      ;;   ;; SSE status indicator
-      ;;   ;; [rc/h-box
-      ;;   ;;  :style (merge s/flex s/items-center s/text-xs)
-      ;;   ;;  :children
-      ;;   ;;  [(cond
-      ;;   ;;    sse-connected
-      ;;   ;;    [rc/h-box
-      ;;   ;;     :style (merge s/flex s/items-center)
-      ;;   ;;     :children
-      ;;   ;;     [[:span {:style (merge s/w-2 s/h-2 s/bg-green-400 s/rounded-full s/mr-2 s/animate-pulse)} ""]
-      ;;   ;;      [:span {:style s/text-green-400} "Live"]]]
-
-      ;;   ;;    sse-reconnecting
-      ;;   ;;    [rc/h-box
-      ;;   ;;     :style (merge s/flex s/items-center)
-      ;;   ;;     :children
-      ;;   ;;     [[:span {:style (merge s/w-2 s/h-2 s/bg-yellow-400 s/rounded-full s/mr-2 s/animate-pulse)} ""]
-      ;;   ;;      [:span {:style (merge s/text-xs {:color (:yellow-400 s/colors)})} "Reconnecting..."]]]
-
-      ;;   ;;    :else
-      ;;   ;;    [:span {:style (merge s/text-xs {:color (:gray-500 s/colors)})} "Offline"])]]
-      ;;   ]]
-
-      ;; Trace count
-      ;; [rc/box
-      ;;  :style (merge s/px-4 s/py-2  )
-      ;;  :child [:div {:style (merge s/text-sm s/text-gray-400)}
-      ;;          (str (count traces) " trace" (when (not= 1 (count traces)) "s"))]]
-
-      ;; Trace list (scrollable)
+     [;; Trace list (scrollable)
       [rc/v-box
        :style (merge s/flex-1 s/overflow-y-auto)
        :children
@@ -170,18 +178,21 @@
          [[rc/box
            :style s/p-4
            :child [:div {:style (merge s/text-center s/text-gray-400)} "Loading..."]]]
-      
-         (seq traces)
+
+         (seq grouped-traces)
          (into []
-               (for [trace traces]
-                 ^{:key (:trace-id trace)}
-                 [trace-item
-                  {:trace trace
-                   :on-select on-select
-                   :selected? (= (:trace-id trace) (:trace-id current-trace))}]))
-      
+               (for [group grouped-traces]
+                 ^{:key (:command-name group)}
+                 [trace-group
+                  {:command-name (:command-name group)
+                   :traces (:traces group)
+                   :count (:count group)
+                   :expanded? (:expanded? group)
+                   :current-trace current-trace
+                   :on-select on-select}]))
+
          :else
          [[rc/box
            :style s/p-4
            :child [:div {:style (merge s/text-center {:color (:gray-500 s/colors)})}
-                   "No traces yet. Trigger an AI command to start tracing."]]])]]]))
+                   "No traces yet. Trigger a command to start tracing."]]])]]]))

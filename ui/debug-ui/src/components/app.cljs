@@ -472,27 +472,32 @@
      :gap "0px"
      :style {:margin-left "auto"
              :padding-right "15px"
+             
              :height "45px"}
      :children
      [[rc/box
        :child "GRAIN"
        :style {:font-size "64px"
                :font-weight 900
+               :color "#441A0599"
                :font-family "Outfit, ui-sans-serif, system-ui"
-               :box-shadow "0 12px 15px rgba(0,0,0,0.3)"
-               :text-shadow "10px 0px 0px rgba(0, 242, 255, 0.5), -19px 0px 27px rgba(0, 242, 255, 0.32)"
+               ;:box-shadow "0 12px 15px #F2D16B33"  
+               :text-shadow "6px 0px 0px #F2D16B, -19px 0px 27px #F2D16B22"
                :line-height "0.8"
                :margin-top "5px"}]
       [rc/box
-       :child "\"SANDMAN\""
+       :child "SANDMAN"
        :style {:font-size "26px"
                :font-weight 900
+               :opacity 0.12
                :font-family "Outfit, ui-sans-serif, system-ui"
+               :color "#F2D16B"
                ;:color "#ffffff99"
-               :text-shadow "6px 0px 0px rgba(0, 242, 255, 0.5), -4px 0px 6px rgba(0, 242, 255, 0.32)"
+               ;:text-shadow "6px 0px 0px #F2D16B -4px 0px 6px #F2D16B"
+               ;:text-shadow "4px 0px 0px #F2D16B, -19px 0px 27px #F2D16B44"
                :letter-spacing "0.1em"
                :margin-top "-8px"
-               ;:margin-right "-16px"
+               :margin-right "-6px"
                }]]]]])
 
 (defn app

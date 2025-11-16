@@ -12,6 +12,7 @@
             [components.event-annotation-node :refer [event-annotation-node]]
             [components.read-model-annotation-node :refer [read-model-annotation-node]]
             [components.dspy-annotation-node :refer [dspy-annotation-node]]
+            [components.particle-overlay :refer [particle-canvas]]
             ["reactflow" :as rf-lib :default ReactFlow]
             ["reactflow" :refer [Controls MiniMap Background]]))
 
@@ -103,11 +104,13 @@
 ;; Track last execution event count to avoid excessive fitView calls
 (defonce last-event-count (r/atom nil))
 
+;; React Flow instance - must be stable across renders for particle system
+(defonce reactFlowInstance (r/atom nil))
+
 (defn tree-view-inner
   [{:keys [tree node-status-map executing-nodes selected-node current-trace execution-events]}]
   (let [trace-id (:trace-id current-trace)
         is-executing @(rf/subscribe [::subs/is-trace-executing])
-        reactFlowInstance (r/atom nil)
         video-ref (r/atom nil)
         is-muted (r/atom true)
         view-mode @(rf/subscribe [::subs/view-mode])
@@ -274,40 +277,70 @@
                          edges)]
 
       (if has-data
-        [:div {:style {:width "100%" :height "100%"}}
-         [react-flow
-          {:key (str "reactflow-" trace-id)  ; Unique key per trace
-           :nodes (clj->js nodes-enhanced)
-           :edges (clj->js edges-enhanced)
-           :nodeTypes #js {:annotation annotation-node
-                          :event-annotation event-annotation-node
-                          :read-model-annotation read-model-annotation-node
-                          :dspy-annotation dspy-annotation-node}
-           :onInit #(reset! reactFlowInstance %)
-           :onNodeClick on-node-click
-           :fitView true
-           :fitViewOptions #js {:padding 0.2
-                               :includeHiddenNodes false
-                               :minZoom 0.3
-                               :maxZoom 1.5}
-           :attributionPosition "bottom-left"
-           :nodesDraggable true
-           :nodesConnectable true
-           :elementsSelectable true}
-          [react-flow-controls]
-          [react-flow-background {:gap 20 :size 1 :color "#334155"}]
-          [react-flow-minimap
-           {:nodeColor (fn [node]
-                        (let [class-name (.-className node)]
-                          (case class-name
-                            "pending" "#64748b"
-                            "executing" "#fbbf24"
-                            "success" "#10b981"
-                            "failure" "#ef4444"
-                            "skipped" "#475569"
-                            "#64748b")))
-            :maskColor "rgba(15, 23, 42, 0.8)"
-            :style {:backgroundColor "#1e293b"}}]]]
+        (let [;; Create function to get node color for particles
+              get-node-color-fn (fn [node-id]
+                                 (let [unprefixed-id (last (clojure.string/split node-id #"-(?=\d)"))
+                                       status (get node-status-map unprefixed-id :pending)]
+                                   (cond
+                                     ;; Classification colors (for executed nodes)
+                                     (and (= status :success)
+                                          (contains? (:commands classifications) unprefixed-id)) "#3b82f6"
+                                     (and (= status :success)
+                                          (contains? (:queries classifications) unprefixed-id)) "#10b981"
+                                     (and (= status :success)
+                                          (contains? (:computations classifications) unprefixed-id)) "#f59e0b"
+                                     (and (= status :success)
+                                          (contains? (:conditionals classifications) unprefixed-id)) "#fde047"
+                                     ;; Executing = yellow
+                                     (= status :executing) "#fcd34d"
+                                     ;; Default = mint
+                                     :else "#6ee7b7")))
+
+              ;; Get unprefixed executing node IDs for particle system
+              unprefixed-executing (map #(str trace-id "-" %) executing-nodes)]
+
+          [:div {:style {:width "100%" :height "100%" :position "relative"}}
+           [react-flow
+            {:key (str "reactflow-" trace-id)  ; Unique key per trace
+             :nodes (clj->js nodes-enhanced)
+             :edges (clj->js edges-enhanced)
+             :nodeTypes #js {:annotation annotation-node
+                            :event-annotation event-annotation-node
+                            :read-model-annotation read-model-annotation-node
+                            :dspy-annotation dspy-annotation-node}
+             :onInit #(reset! reactFlowInstance %)
+             :onNodeClick on-node-click
+             :fitView true
+             :fitViewOptions #js {:padding 0.2
+                                 :includeHiddenNodes false
+                                 :minZoom 0.3
+                                 :maxZoom 1.5}
+             :attributionPosition "bottom-left"
+             :nodesDraggable true
+             :nodesConnectable true
+             :elementsSelectable true}
+            [react-flow-controls]
+            [react-flow-background {:gap 20 :size 1 :color "#334155"}]
+            [react-flow-minimap
+             {:nodeColor (fn [node]
+                          (let [class-name (.-className node)]
+                            (case class-name
+                              "pending" "#64748b"
+                              "executing" "#fbbf24"
+                              "success" "#10b981"
+                              "failure" "#ef4444"
+                              "skipped" "#475569"
+                              "#64748b")))
+              :maskColor "rgba(15, 23, 42, 0.8)"
+              :style {:backgroundColor "#1e293b"}}]]
+
+           ;; Particle overlay for grain effects
+           (when (seq unprefixed-executing)
+             [particle-canvas
+              {:react-flow-instance-atom reactFlowInstance
+               :executing-nodes unprefixed-executing
+               :get-node-color-fn get-node-color-fn
+               :trace-id trace-id}])])
 
         ;; No tree loaded - show video
         [:div {:style (merge s/flex s/items-center s/justify-center s/h-full s/text-gray-400)}

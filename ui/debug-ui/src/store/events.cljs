@@ -248,6 +248,30 @@
    (assoc db :view-mode mode)))
 
 ;;
+;; Trace Grouping
+;;
+
+(rf/reg-event-db
+ ::toggle-group
+ (fn [db [_ command-name]]
+   (update db :expanded-groups
+           (fn [groups]
+             (if (contains? groups command-name)
+               (disj groups command-name)
+               (conj groups command-name))))))
+
+(rf/reg-event-db
+ ::expand-all-groups
+ (fn [db _]
+   (let [all-command-names (into #{} (map :command-name (:traces db)))]
+     (assoc db :expanded-groups all-command-names))))
+
+(rf/reg-event-db
+ ::collapse-all-groups
+ (fn [db _]
+   (assoc db :expanded-groups #{})))
+
+;;
 ;; Error Handling
 ;;
 

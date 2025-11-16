@@ -720,7 +720,7 @@
                           :font-weight "600"               ; font-semibold
                           :color "#d1d5db"                 ; text-gray-300
                           :margin-bottom "0.5rem"}}        ; mb-2
-             [:span "⚙️ Execution Timeline "]
+             [:span "Execution Timeline "]
              [:span (str "(" (count all-events) ")")]]
             [:div {:style {:display "flex"
                            :flex-direction "column"

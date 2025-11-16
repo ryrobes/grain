@@ -63,9 +63,37 @@
  (fn [db _]
    (or (:view-mode db) :hybrid)))
 
+(rf/reg-sub
+ ::expanded-groups
+ (fn [db _]
+   (:expanded-groups db)))
+
 ;;
 ;; Derived Subscriptions
 ;;
+
+(rf/reg-sub
+ ::grouped-traces
+ :<- [::traces]
+ :<- [::expanded-groups]
+ (fn [[traces expanded-groups] _]
+   (when (seq traces)
+     ;; Group traces by command name
+     (let [grouped (group-by :command-name traces)
+           ;; Sort groups by most recent trace timestamp
+           sorted-groups (sort-by (fn [[_cmd-name trace-list]]
+                                   (apply max (map #(or (:started-at %) 0) trace-list)))
+                                 >
+                                 grouped)]
+       ;; Transform to list of {:command-name, :traces, :count, :expanded?, :latest-timestamp}
+       (mapv (fn [[cmd-name trace-list]]
+               (let [sorted-traces (sort-by :started-at > trace-list)]
+                 {:command-name cmd-name
+                  :traces sorted-traces
+                  :count (count sorted-traces)
+                  :expanded? (contains? expanded-groups cmd-name)
+                  :latest-timestamp (:started-at (first sorted-traces))}))
+             sorted-groups)))))
 
 (rf/reg-sub
  ::trace-count

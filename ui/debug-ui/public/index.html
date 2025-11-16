@@ -41,6 +41,7 @@
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
             background-color: #0B1629FF;
+            /* background-color: #441A05;  sandy color */
             
             color: #e2e8f0;
         }
@@ -53,7 +54,10 @@
 
         code {
             font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+            border: none;
         }
+
+        pre { border: none;}
 
         /* React Flow base styles */
         .react-flow {
@@ -69,7 +73,9 @@
             background-color: #1e293b;
             color: #e2e8f0;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-            min-width: 320px;  /* Increased from default for better readability */
+            min-width: 120px;  /* Minimum width for small labels */
+            max-width: 400px;  /* Maximum width to prevent overly wide nodes */
+            width: fit-content;  /* Size to content */
             /* Allow wrapping on underscores */
             word-break: break-word;
             overflow-wrap: anywhere;
@@ -252,10 +258,26 @@
         }
 
         /* Prism.js theme overrides for better dark mode integration */
+        pre[class*="language-"],
+        pre[class*="language-"] *,
+        code[class*="language-"],
+        code[class*="language-"] * {
+            border: none !important;
+            outline: none !important;
+            box-shadow: none !important;
+        }
+
         pre[class*="language-"] {
             background-color: #1e293b !important;
-            margin: 0;
-            padding: 0;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            /* Enable word wrapping */
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
         }
 
         code[class*="language-"] {
@@ -264,6 +286,17 @@
             font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
             font-size: 12px;
             line-height: 1.5;
+            /* Enable word wrapping */
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+        }
+
+        /* Remove all borders from Prism tokens */
+        .token,
+        .token * {
+            border: none !important;
+            outline: none !important;
         }
 
         /* JSON syntax highlighting colors */
@@ -290,12 +323,21 @@
 
         /* Prism highlighting inside React Flow annotation nodes */
         .react-flow__node.annotation-node pre[class*="language-"],
-        .react-flow__node.annotation-node code[class*="language-"] {
+        .react-flow__node.annotation-node pre[class*="language-"] *,
+        .react-flow__node.annotation-node code[class*="language-"],
+        .react-flow__node.annotation-node code[class*="language-"] * {
             background-color: transparent !important;
-            margin: 0;
-            padding: 0;
+            margin: 0 !important;
+            padding: 0 !important;
             font-size: 10px;
             line-height: 1.4;
+            border: none !important;
+            outline: none !important;
+            box-shadow: none !important;
+            /* Enable word wrapping */
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
         }
 
         .react-flow__node.annotation-node .token.property {
@@ -321,6 +363,23 @@
             opacity: 0.8;
             text-transform: uppercase;
             letter-spacing: 0.05em;
+        }
+
+        /* Ensure no borders on any Prism line numbers or elements */
+        .line-numbers-rows,
+        .line-numbers-rows > span {
+            border: none !important;
+            outline: none !important;
+        }
+
+        /* Remove borders from any child elements in code blocks */
+        pre[class*="language-"] > *,
+        code[class*="language-"] > * {
+            border: none !important;
+            border-left: none !important;
+            border-right: none !important;
+            border-top: none !important;
+            border-bottom: none !important;
         }
     </style>
 </head>
