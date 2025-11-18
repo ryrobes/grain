@@ -159,7 +159,7 @@
           [:div {:style {:display "flex"
                          :align-items "center"
                          :gap "0.5rem"}}
-           [:span {:style {:font-size "1.25rem"}} "👁"]
+           [:span {:style {:font-size "1.25rem"}} ""]
            [:span {:style {:font-weight "600"
                            :color "#e9d5ff"}} (if live-flow? "Live Flow" "View Preview")]
            (when (and (not live-flow?) @view-data)

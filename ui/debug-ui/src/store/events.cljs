@@ -55,16 +55,29 @@
  (fn [{:keys [db]} [_ response]]
    (let [new-traces (:traces response)
          current-trace-id (get-in db [:current-trace :trace-id])
+         pending-trace-id (:pending-trace-fetch db)
          ;; Find if current trace was updated
          updated-current (when current-trace-id
-                          (first (filter #(= current-trace-id (:trace-id %)) new-traces)))]
+                          (first (filter #(= current-trace-id (:trace-id %)) new-traces)))
+         ;; Find pending trace to check if it has session-id
+         pending-trace (when pending-trace-id
+                        (first (filter #(= pending-trace-id (:trace-id %)) new-traces)))]
 
-     ;; If current trace is in the new list and is live, fetch latest version
+     (js/console.log "📋 Traces fetched. Pending trace:" pending-trace-id
+                     "| Has session:" (boolean (:session-id pending-trace)))
+
+     ;; Update traces and clear pending flag
      (cond-> {:db (-> db
                      (assoc :traces new-traces)
-                     (assoc :loading false))}
+                     (assoc :loading false)
+                     (dissoc :pending-trace-fetch))}
 
-       (and updated-current (:live? updated-current))
+       ;; Fetch pending trace if it exists (for new trace-started events)
+       pending-trace-id
+       (assoc :dispatch [::fetch-trace pending-trace-id])
+
+       ;; Also fetch if current trace was updated and is live
+       (and updated-current (:live? updated-current) (not= pending-trace-id current-trace-id))
        (assoc :dispatch [::fetch-trace current-trace-id])))))
 
 (rf/reg-event-db
@@ -123,6 +136,9 @@
                        (sequential? x) x
                        :else nil))
                    tree-structure))))]
+     (js/console.log "🎯 View detection for" trace-id "| Live:" live? "| Session:" session-id "| Has view:" has-view?)
+     (when (and live? session-id has-view?)
+       (js/console.log "🖼️ Auto-opening live flow preview for" trace-id))
      (cond-> {:db db'}
        (and live? session-id has-view?)
        ;; Automatically open live flow iframe preview inside debug UI
@@ -242,6 +258,7 @@
      :trace-started
      (let [trace (:trace event)
            trace-id (:trace-id trace)]
+       (js/console.log "🚀 Trace started:" trace-id "- fetching metadata and full trace")
        {:db (-> db
                (update :traces
                       (fn [traces]
@@ -251,7 +268,11 @@
                ;; Immediately set as current trace (no HTTP fetch needed!)
                (assoc :current-trace trace)
                ;; Clear selected node
-               (assoc :selected-node nil))})
+               (assoc :selected-node nil)
+               ;; Mark that we need to fetch this trace after traces list updates
+               (assoc :pending-trace-fetch trace-id))
+        ;; First fetch traces list to get session-id/live? metadata
+        :dispatch [::fetch-traces]})
 
      ;; Trace completed - update existing trace in list and cleanup streaming events
      :trace-completed
@@ -290,23 +311,47 @@
      ;; Default: ignore unknown events
      {:db db})))
 
-(rf/reg-event-db
+(rf/reg-event-fx
  ::flush-batched-events
- (fn [db [_ trace-id events]]
-   (let [current-trace (:current-trace db)]
-     ;; Apply all batched events at once
-     (cond-> db
-       ;; Add to streaming-events map
-       true
-       (update-in [:streaming-events trace-id]
-                  (fn [existing]
-                    (vec (concat (or existing []) events))))
+ (fn [{:keys [db]} [_ trace-id events]]
+   (let [current-trace (:current-trace db)
+         ;; Check if any of the new events contain view nodes
+         has-view-event? (some (fn [event]
+                                 (and (map? event)
+                                      (or (= :view (:type event))
+                                          (= :view-action (:type event)))))
+                              events)
+         ;; Look up trace info for session-id
+         traces (:traces db)
+         trace-info (first (filter #(= trace-id (:trace-id %)) traces))
+         session-id (:session-id trace-info)
+         is-live? (:live? trace-info)
+         ;; Check if preview is already open
+         preview-open? (:view-preview-visible db)]
 
-       ;; Also update current-trace if we're viewing this trace
-       (and current-trace (= trace-id (:trace-id current-trace)))
-       (update-in [:current-trace :execution-events]
-                  (fn [existing]
-                    (vec (concat (or existing []) events))))))))
+     (when (and has-view-event? is-live? session-id (not preview-open?)
+                current-trace (= trace-id (:trace-id current-trace)))
+       (js/console.log "🎨 View node detected in execution events - opening preview for" trace-id))
+
+     ;; Apply all batched events at once
+     (cond-> {:db (cond-> db
+                    ;; Add to streaming-events map
+                    true
+                    (update-in [:streaming-events trace-id]
+                               (fn [existing]
+                                 (vec (concat (or existing []) events))))
+
+                    ;; Also update current-trace if we're viewing this trace
+                    (and current-trace (= trace-id (:trace-id current-trace)))
+                    (update-in [:current-trace :execution-events]
+                               (fn [existing]
+                                 (vec (concat (or existing []) events)))))}
+
+       ;; Auto-open view preview if we detect view nodes and haven't opened yet
+       (and has-view-event? is-live? session-id (not preview-open?)
+            current-trace (= trace-id (:trace-id current-trace)))
+       (assoc :dispatch [::show-view-preview
+                        (str (:api-base db) "/flows/session/" session-id "/current-view")])))))
 
 (rf/reg-event-db
  ::execution-event-received
@@ -394,7 +439,7 @@
 (rf/reg-event-db
  ::show-view-preview
  (fn [db [_ preview-url]]
-   (js/console.log "👁 Show view preview:" preview-url)
+   (js/console.log "🖼 Show view preview:" preview-url)
    (assoc db
           :view-preview-visible true
           :view-preview-url preview-url)))
@@ -402,7 +447,7 @@
 (rf/reg-event-db
  ::close-view-preview
  (fn [db _]
-   (js/console.log "👁 Close view preview")
+   (js/console.log "🖼 Close view preview")
    (assoc db
           :view-preview-visible false
           :view-preview-url nil)))

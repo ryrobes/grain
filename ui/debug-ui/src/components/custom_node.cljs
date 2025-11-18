@@ -25,7 +25,7 @@
         (react/createElement "div"
           #js {:className "absolute -top-1 -left-1 bg-purple-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm"
                :title "View node - click to preview"}
-          "👁"))
+          ""))
 
       ;; Memory change indicator badge (top-right corner)
       (when has-memory-changes
@@ -62,5 +62,5 @@
                  :target "_blank"
                  :className "text-xs bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded inline-flex items-center gap-1"
                  :onClick (fn [e] (.stopPropagation e))}
-            (react/createElement "span" nil "👁")
+            (react/createElement "span" nil "")
             (react/createElement "span" nil "Preview")))))))

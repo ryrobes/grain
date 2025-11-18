@@ -57,7 +57,7 @@
                      :font-weight "600"
                      :margin-bottom "0.5rem"
                      :color "#e9d5ff"}}
-       "👁 View Node"]
+       " View Node"]
 
       [:div {:style {:margin-bottom "0.5rem"}}
        [:strong "ID: "] (str view-id)]
@@ -84,7 +84,7 @@
                         :cursor "pointer"}
                 :onMouseOver (fn [e] (set! (-> e .-target .-style .-backgroundColor) "#6d28d9"))
                 :onMouseOut (fn [e] (set! (-> e .-target .-style .-backgroundColor) "#7c3aed"))}
-       [:span "👁"]
+       [:span ""]
        [:span "Preview This View"]]]
 
      [:div {:style {:margin-top "1.5rem"

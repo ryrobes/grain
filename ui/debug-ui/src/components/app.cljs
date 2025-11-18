@@ -602,7 +602,7 @@
 
              view-preview-visible
              (do
-               (js/console.log "👁 Rendering view preview component!")
+               (js/console.log " Rendering view preview component!")
                [view-preview-panel])
 
              :else
