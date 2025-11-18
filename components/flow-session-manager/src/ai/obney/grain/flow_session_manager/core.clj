@@ -67,13 +67,15 @@
 (defn execute-flow-reactive
   "Execute flow reactively using core.async.
 
-  Builds and ticks the tree directly (not via run-with-tracing) so that
-  the SAME st-memory atom persists across ticks.
+  Uses the debug live-trace API so that a SINGLE trace ID is used for
+  the entire interactive flow while short-term memory persists across
+  ticks.
 
   Returns immediately with: {:session-id <uuid> :status :running}"
   [tree build-context session-id flow-name opts]
   (let [session (get-session session-id)
-        wake-chan (:wake-chan session)]
+        wake-chan (:wake-chan session)
+        streaming-opts (merge {:streaming? true} opts)]
 
     (println "📝 execute-flow-reactive called")
     (println "   Session ID:" session-id)
@@ -83,126 +85,115 @@
     ;; Update status
     (reset! (:status session) :running)
 
-    ;; Build tree ONCE (outside the loop!)
-    (let [built-tree (try
-                      (bt/build tree build-context)
-                      (catch Exception e
-                        (println "❌ Error building tree:" (.getMessage e))
-                        (.printStackTrace e)
-                        (throw e)))
+    ;; Start a live trace that will span all ticks for this session
+    (let [live-trace (debug/start-live-trace tree build-context flow-name streaming-opts)
+          session-trace-id (:trace-id live-trace)]
 
-          ;; Extract the st-memory atom that build created
-          actual-st-memory (get-in built-tree [:context :st-memory])]
+      (println "📋 Created live trace:" session-trace-id "(interactive session)")
 
-      (println "🏗️  Tree built successfully!")
-      (println "   Built tree type:" (:type built-tree))
-      (println "   Built tree context keys:" (keys (:context built-tree)))
-      (println "   Actual st-memory type:" (type actual-st-memory))
+      ;; Store trace-id and live-trace state on the session
+      (swap! active-sessions assoc-in [session-id :trace-id] session-trace-id)
+      (swap! active-sessions assoc-in [session-id :live-trace] live-trace)
 
-      ;; Store built tree and actual st-memory in session
-      (swap! active-sessions assoc-in [session-id :built-tree] built-tree)
-      (swap! active-sessions assoc-in [session-id :st-memory] actual-st-memory)
-
-      ;; Execute reactively with tracing on EACH tick (necessary for instrumentation!)
+      ;; Execute reactively with tracing on EACH tick using the same trace-id
       (let [exec-result
-              (future
-                (try
-                  (println "🏗️  Starting reactive execution...")
+            (future
+              (try
+                (println "🏗️  Starting reactive execution with live trace...")
 
-                  ;; Initial tick with tracing
-                  (let [initial-result (debug/run-with-tracing
-                                        tree
-                                        build-context
-                                        flow-name
-                                        (merge opts {:streaming? true}))
-                        session-trace-id (:trace-id (:trace initial-result))
-                        initial-bt (:bt initial-result)
-                        session-st-memory (-> initial-bt :context :st-memory)]
+                ;; Initial tick
+                (let [initial-result (debug/run-tick-with-live-trace
+                                      live-trace
+                                      tree
+                                      build-context)
+                      initial-bt (:bt initial-result)
+                      session-st-memory (-> initial-bt :context :st-memory)
+                      initial-status (:result initial-result)]
 
-                    (println "📋 Created initial trace:" session-trace-id "(tick 0)")
+                  ;; Store built tree and memory
+                  (swap! active-sessions assoc-in [session-id :built-tree] initial-bt)
+                  (swap! active-sessions assoc-in [session-id :st-memory] session-st-memory)
 
-                    ;; Store trace-id and memory
-                    (swap! active-sessions assoc-in [session-id :trace-id] session-trace-id)
-                    (swap! active-sessions assoc-in [session-id :st-memory] session-st-memory)
+                  ;; Reactive loop
+                  (loop [tick-count 1
+                         last-result initial-status]
 
-                    ;; Reactive loop
-                    (loop [tick-count 1
-                           last-result (:result initial-result)]
+                    (cond
+                      (= last-result bt/success)
+                      (do
+                        (println "✅ Flow completed after" tick-count "ticks")
+                        (reset! (:status session) :completed)
+                        (debug/finalize-live-trace! live-trace bt/success)
+                        {:result :success})
 
-                      (case last-result
-                        :success
-                        (do
-                          (println "✅ Flow completed after" tick-count "ticks")
-                          (reset! (:status session) :completed)
-                          {:result :success})
+                      (= last-result bt/failure)
+                      (do
+                        (println "❌ Flow failed")
+                        (reset! (:status session) :failed)
+                        (debug/finalize-live-trace! live-trace bt/failure)
+                        {:result :failure})
 
-                        :failure
-                        (do
-                          (println "❌ Flow failed")
-                          (reset! (:status session) :failed)
-                          {:result :failure})
+                      (= last-result bt/running)
+                      (do
+                        (println "⏸️  Tick" (dec tick-count) "blocked, waiting for wake...")
 
-                        :running
-                        (do
-                          (println "⏸️  Tick" (dec tick-count) "blocked, waiting for wake...")
+                        ;; WAIT on channel
+                        (let [timeout-chan (async/timeout 120000)
+                              [_ port] (async/alts!! [wake-chan timeout-chan])]
 
-                          ;; WAIT on channel
-                          (let [timeout-chan (async/timeout 120000)
-                                [_ port] (async/alts!! [wake-chan timeout-chan])]
+                          (if (= port timeout-chan)
+                            ;; Timeout
+                            (do
+                              (println "⏱️  Timeout")
+                              (reset! (:status session) :timeout)
+                              (debug/finalize-live-trace! live-trace :timeout)
+                              {:result :timeout})
 
-                            (if (= port timeout-chan)
-                              ;; Timeout
-                              (do
-                                (println "⏱️  Timeout")
-                                (reset! (:status session) :timeout)
-                                {:result :timeout})
+                            ;; Woken up! Run another tick with live tracing
+                            (do
+                              (println "⏰ Woke up! Running tick" tick-count "with live trace...")
 
-                              ;; Woken up! Run with tracing for instrumentation
-                              (do
-                                (println "⏰ Woke up! Running tick" tick-count "with tracing...")
+                              ;; Get current memory from session
+                              (let [latest-session (get-session session-id)
+                                    current-mem @(:st-memory latest-session)
+                                    tick-context (assoc build-context :st-memory current-mem)
 
-                                ;; Get current memory from session
-                                (let [latest-session (get-session session-id)
-                                      current-mem @(:st-memory latest-session)
-                                      tick-context {:event-store (:event-store build-context)
-                                                   :st-memory current-mem}
+                                    tick-result (debug/run-tick-with-live-trace
+                                                 live-trace
+                                                 tree
+                                                 tick-context)
+                                    new-result (:result tick-result)
+                                    updated-bt (:bt tick-result)
+                                    updated-st-memory (-> updated-bt :context :st-memory)]
 
-                                      ;; Run with tracing (creates new trace, but needed for instrumentation!)
-                                      tick-result (debug/run-with-tracing
-                                                   tree
-                                                   tick-context
-                                                   flow-name
-                                                   (merge opts {:streaming? true}))
-                                      new-result (:result tick-result)
-                                      new-trace-id (:trace-id (:trace tick-result))
-                                      updated-bt (:bt tick-result)
-                                      updated-st-memory (-> updated-bt :context :st-memory)]
+                                ;; Update session with latest
+                                (swap! active-sessions assoc-in [session-id :built-tree] updated-bt)
+                                (swap! active-sessions assoc-in [session-id :st-memory] updated-st-memory)
 
-                                  (println "   📋 Tick" tick-count "trace:" new-trace-id)
+                                (let [mem @updated-st-memory
+                                      view-outputs-key (keyword "ai.obney.grain.behavior-tree-v2.core.nodes" "view-outputs")
+                                      view-outputs (get mem view-outputs-key)]
+                                  (println "   View outputs:" (keys view-outputs)))
 
-                                  ;; Update session with latest
-                                  (swap! active-sessions assoc-in [session-id :trace-id] new-trace-id)
-                                  (swap! active-sessions assoc-in [session-id :st-memory] updated-st-memory)
+                                ;; Continue loop
+                                (recur (inc tick-count) new-result))))))
 
-                                  (let [mem @updated-st-memory
-                                        view-outputs-key (keyword "ai.obney.grain.behavior-tree-v2.core.nodes" "view-outputs")
-                                        view-outputs (get mem view-outputs-key)]
-                                    (println "   View outputs:" (keys view-outputs)))
+                      :else
+                      (do
+                        (println "⚠️  Unknown result:" last-result)
+                        (reset! (:status session) :completed)
+                        (debug/finalize-live-trace! live-trace last-result)
+                        {:result last-result}))))
 
-                                  ;; Continue
-                                  (recur (inc tick-count) new-result))))))
-
-                        ;; Unknown
-                        (do
-                          (println "⚠️  Unknown:" last-result)
-                          (reset! (:status session) :completed)
-                          {:result last-result}))))
-
-                  (catch Exception e
-                    (println "❌ Flow execution error:" (.getMessage e))
-                    (.printStackTrace e)
-                    (reset! (:status session) :error)
-                    {:result :error :error e})))]
+                (catch Exception e
+                  (println "❌ Flow execution error:" (.getMessage e))
+                  (.printStackTrace e)
+                  (reset! (:status session) :error)
+                  (try
+                    (debug/finalize-live-trace! live-trace :error)
+                    (catch Exception _e
+                      nil))
+                  {:result :error :error e})))]
 
         ;; Store execution future
         (swap! active-sessions assoc-in [session-id :execution-future] exec-result)

@@ -73,6 +73,32 @@
    (inst/run-with-tracing tree build-context command-name opts)))
 
 ;;
+;; Live Tracing for Interactive Flows
+;;
+
+(defn start-live-trace
+  "Initialize a live trace for an interactive flow without executing the tree.
+
+   Returns a live-trace state map that should be passed to
+   `run-tick-with-live-trace` and `finalize-live-trace!`."
+  ([tree build-context command-name]
+   (inst/start-live-trace tree build-context command-name))
+  ([tree build-context command-name opts]
+   (inst/start-live-trace tree build-context command-name opts)))
+
+(defn run-tick-with-live-trace
+  "Run a single behavior tree tick under an existing live trace.
+
+   Returns {:result <bt-result>, :bt <built-tree>, :trace <updated-trace>}."
+  [live-trace tree build-context]
+  (inst/run-tick-with-live-trace live-trace tree build-context))
+
+(defn finalize-live-trace!
+  "Finalize an interactive live trace and persist it in the trace store."
+  [live-trace result]
+  (inst/finalize-live-trace! live-trace result))
+
+;;
 ;; Trace Storage Operations
 ;;
 

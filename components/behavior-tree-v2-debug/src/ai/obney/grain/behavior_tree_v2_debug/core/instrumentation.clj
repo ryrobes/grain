@@ -370,14 +370,53 @@
           duration-ms (- (System/currentTimeMillis) start-ms)]
 
       (when *trace-enabled*
-        (log-event! {:event-type :node-exit
-                     :node-id node-id
-                     :node-type :action
-                     :action-label action-label
-                     :status (if (= result bt/success) :success :failure)
-                     :duration-ms duration-ms}))
+        (let [status (cond
+                       (= result bt/success) :success
+                       (= result bt/failure) :failure
+                       (= result bt/running) :running
+                       :else :failure)]
+          ;; For :running, we intentionally DO NOT emit a :node-exit event.
+          ;; This keeps the node in the \"entered but not exited\" set so the
+          ;; UI can show it as :executing while the flow is blocked.
+          (when (not= status :running)
+            (log-event! {:event-type :node-exit
+                         :node-id node-id
+                         :node-type :action
+                         :action-label action-label
+                         :status status
+                         :duration-ms duration-ms}))))
 
       result)))
+
+(defn simple-instrument-view
+  "Minimal view wrapper - log entry/exit around the render function.
+
+  Unlike actions, views return rendered Hiccup which is then stored by
+  the :view node tick function. We only observe, never change behavior."
+  [render-fn node-id view-label]
+  (fn view-wrapper [context]
+    (when *trace-enabled*
+      (log-event! {:event-type :node-enter
+                   :node-id node-id
+                   :node-type :view
+                   :view-label view-label}))
+
+    (let [start-ms (System/currentTimeMillis)
+          ;; Bind *current-node-id* so es/append inside render (if any)
+          ;; can be attributed, though most views are pure.
+          rendered (binding [*current-node-id* node-id]
+                     (render-fn context))
+          duration-ms (- (System/currentTimeMillis) start-ms)]
+
+      (when *trace-enabled*
+        (log-event! {:event-type :node-exit
+                     :node-id node-id
+                     :node-type :view
+                     :view-label view-label
+                     :status :success
+                     :duration-ms duration-ms}))
+
+      rendered)))
 
 ;;
 ;; Simple Condition Instrumentation
@@ -478,9 +517,28 @@
                   [:condition config (simple-instrument-condition predicate-fn node-id label)]
                   [:condition (simple-instrument-condition predicate-fn node-id label)]))
 
+              ;; View node - instrument render function (config map optional)
+              (and (= :view (first node))
+                   *trace-enabled*)
+              (let [config (when (map? (second node)) (second node))
+                    render-fn (if config
+                                (nth node 2 nil)
+                                (second node))
+                    node-id path
+                    view-label (try
+                                 (if (and config (:id config))
+                                   (let [id (:id config)]
+                                     (if (keyword? id) (name id) (str id)))
+                                   "view")
+                                 (catch Exception _
+                                   "view"))]
+                (if config
+                  [:view config (simple-instrument-view render-fn node-id view-label)]
+                  [:view (simple-instrument-view render-fn node-id view-label)]))
+
               ;; Composite node - recurse on children with indexed paths
               (and (keyword? (first node))
-                   (#{:sequence :fallback :parallel} (first node)))
+                   (#{:sequence :fallback :parallel :view-action} (first node)))
               (into [(first node)]
                     (map-indexed (fn [idx child]
                                   (walk-tree child (str path "." idx)))
@@ -507,6 +565,18 @@
    :execution-events []
    :status :running})
 
+(defn result->status
+  "Map a behavior tree result keyword to a trace status keyword.
+
+  Supports :success, :failure, :running and custom keywords like :timeout."
+  [result]
+  (cond
+    (= result bt/success) :success
+    (= result bt/failure) :failure
+    (= result bt/running) :running
+    (keyword? result) result
+    :else :error))
+
 (defn finalize-trace
   "Finalize the trace after execution completes."
   [trace result]
@@ -516,7 +586,7 @@
     (assoc trace
            :completed-at completed-at
            :duration-ms duration-ms
-           :status (if (= result bt/success) :success :failure)
+           :status (result->status result)
            :result result)))
 
 ;;
@@ -592,7 +662,7 @@
              ;; Log trace complete
              (log-event! {:event-type :trace-complete
                           :result result
-                          :status (if (= result bt/success) :success :failure)})
+                          :status (result->status result)})
 
              ;; Remove watchers
              (when st-memory
@@ -632,6 +702,128 @@
                {:result bt/failure
                 :trace final-trace
                 :error e})))))))))  ;; Close with-redefs
+
+;;
+;; Live Trace Support for Interactive Flows
+;;
+
+(defn start-live-trace
+  "Initialize a live trace for an interactive flow without executing the tree.
+
+   Returns a map containing trace state:
+   - :trace-atom       Atom of the trace map
+   - :trace-id         UUID of the trace
+   - :node-id-counter  Counter atom for node IDs (reserved for future use)
+   - :command-name     Original command name
+   - :streaming?       Whether streaming is enabled"
+  ([tree build-context command-name]
+   (start-live-trace tree build-context command-name {:streaming? true}))
+  ([tree build-context command-name opts]
+   (let [trace (create-trace command-name tree (:auth-claims build-context))
+         trace-atom (atom trace)
+         node-id-counter (atom 0)
+         streaming? (:streaming? opts true)
+         trace-id (:trace-id trace)]
+
+     ;; Add partial trace to store immediately (for real-time viewing)
+     (when streaming?
+       (trace-store/add-partial-trace! trace))
+
+     {:trace-atom trace-atom
+      :trace-id trace-id
+      :node-id-counter node-id-counter
+      :command-name command-name
+      :streaming? streaming?})))
+
+(defn run-tick-with-live-trace
+  "Run a single behavior tree tick under an existing live trace.
+
+   Does NOT finalize the trace. Use `finalize-live-trace!` when the
+   interactive flow has completed.
+
+   Returns:
+   - {:result <bt-result>, :bt <built-tree>, :trace <updated-trace>}"
+  [live-trace tree build-context]
+  (let [{:keys [trace-atom trace-id node-id-counter command-name streaming?]}
+        live-trace]
+
+    (binding [*trace-enabled* true
+              *current-trace* trace-atom
+              *node-id-counter* node-id-counter
+              *streaming-enabled* streaming?
+              *trace-id* trace-id
+              *current-node-id* nil]
+
+      ;; Capture originals before redefining
+      (reset! original-es-append es/append)
+      (reset! original-es-read es/read)
+
+      (with-redefs [es/append traced-append
+                    es/read traced-read]
+        (try
+          ;; Instrument the tree (v2 - simple actions only)
+          (let [instrumented-tree (simple-instrument-tree tree)
+                bt (bt/build instrumented-tree build-context)
+                st-memory (-> bt :context :st-memory)
+                lt-memory (-> bt :context :lt-memory)]
+
+            ;; Add memory watchers
+            (when st-memory
+              (add-watch st-memory ::trace-watcher
+                         (create-memory-watcher :st-memory)))
+
+            (when lt-memory
+              (try
+                (add-watch lt-memory ::trace-watcher
+                           (create-memory-watcher :lt-memory))
+                (catch Exception _e
+                  nil))) ;; Silently ignore if lt-memory doesn't support watching
+
+            ;; Only log trace-start once (first tick)
+            (when (empty? (:execution-events @trace-atom))
+              (log-event! {:event-type :trace-start
+                           :command-name command-name}))
+
+            ;; Execute a single tick
+            (let [result (bt/run bt)]
+
+              ;; Note: We intentionally DO NOT log :trace-complete here.
+              ;; That is handled when the interactive flow is finalized.
+
+              ;; Remove watchers
+              (when st-memory
+                (try
+                  (remove-watch st-memory ::trace-watcher)
+                  (catch Exception _e
+                    nil)))
+              (when lt-memory
+                (try
+                  (remove-watch lt-memory ::trace-watcher)
+                  (catch Exception _e
+                    nil)))
+
+              {:result result
+               :bt bt
+               :trace @trace-atom}))
+
+          (catch Exception e
+            (log-event! {:event-type :trace-error
+                         :error {:message (.getMessage e)
+                                 :type (-> e class .getName)}})
+            ;; Do NOT finalize the trace here; caller decides how to classify.
+            {:result bt/failure
+             :error e
+             :trace @trace-atom}))))))  ;; Close with-redefs
+
+(defn finalize-live-trace!
+  "Finalize a live trace for an interactive flow.
+
+   Adds the completed trace to the store and returns it."
+  [live-trace result]
+  (let [{:keys [trace-atom]} live-trace
+        final-trace (finalize-trace @trace-atom result)]
+    (trace-store/add-trace! final-trace)
+    final-trace))
 
 ;;
 ;; Helper: Check if tracing is enabled
