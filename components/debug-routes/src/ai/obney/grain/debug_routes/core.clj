@@ -1,13 +1,30 @@
 (ns ai.obney.grain.debug-routes.core
   "HTTP endpoints for debug UI to fetch behavior tree execution traces."
   (:require [ai.obney.grain.behavior-tree-v2-debug.interface :as debug]
+            [ai.obney.grain.debug-routes.repl :as repl]
+            [ai.obney.grain.view-router.interface :as view-router]
             [io.pedestal.http :as http]
             [io.pedestal.http.body-params :as body-params]
+            [io.pedestal.interceptor :as interceptor]
             [cognitect.transit :as transit]
             [clojure.core.async :as async]
-            [clojure.walk])
+            [clojure.walk]
+            [clojure.pprint]
+            [hiccup2.core :as h])
   (:import [java.io ByteArrayOutputStream]
            [java.time Instant]))
+
+;;
+;; Interceptors
+;;
+
+(def allow-iframe
+  "Interceptor to remove X-Frame-Options header, allowing iframe embedding.
+   This is needed for the debug UI to show view previews in iframes."
+  (interceptor/interceptor
+   {:name ::allow-iframe
+    :leave (fn [context]
+             (update-in context [:response :headers] dissoc "X-Frame-Options"))}))
 
 ;;
 ;; Transit Serialization
@@ -163,6 +180,244 @@
      :body body-ch}))
 
 ;;
+;; View Rendering from Traces
+;;
+
+(defn find-view-node-in-tree
+  "Find a view node by view-id or node-id in the tree structure.
+
+  Searches for:
+  1. A view node where (:id (:view-config node)) matches view-id
+  2. Or where (:node-id node) matches view-id
+
+  Note: The tree structure in traces has render-fn replaced with '<function>' string
+  for serialization. This returns the view metadata but not the actual render function."
+  [tree view-id]
+  (let [result (atom nil)
+        view-id-kw (if (keyword? view-id) view-id (keyword view-id))]
+    (clojure.walk/postwalk
+     (fn [node]
+       (when (and (map? node)
+                  (= :view (:type node)))
+         ;; Check if this view node matches by :id in config or by node-id
+         (when (or (= view-id-kw (get-in node [:view-config :id]))
+                   (= view-id (:node-id node))
+                   (= (str view-id) (str (:node-id node))))
+           (reset! result node)))
+       node)
+     tree)
+    @result))
+
+(defn get-memory-at-node
+  "Get the memory state at a specific node execution.
+
+  Walks through execution events up to the node and reconstructs state.
+  For view nodes, we want the memory AFTER rendering, so we look for
+  snapshots between node-enter and node-exit."
+  [trace node-id]
+  (let [events (:execution-events trace)
+        ;; Find both enter and exit for this node
+        node-enter-event (->> events
+                             (filter #(and (= :node-enter (:event-type %))
+                                          (= node-id (:node-id %))))
+                             first)
+        node-exit-event (->> events
+                            (filter #(and (= :node-exit (:event-type %))
+                                         (= node-id (:node-id %))))
+                            first)
+        enter-idx (when node-enter-event (.indexOf events node-enter-event))
+        exit-idx (when node-exit-event (.indexOf events node-exit-event))]
+
+    (println "🔍 get-memory-at-node debug:")
+    (println "  Looking for node-id:" node-id)
+    (println "  Found enter event?" (boolean node-enter-event))
+    (println "  Found exit event?" (boolean node-exit-event))
+    (println "  Enter idx:" enter-idx "Exit idx:" exit-idx)
+
+    (if (and enter-idx exit-idx (>= exit-idx 0))
+      ;; Find the last memory snapshot between enter and exit (inclusive)
+      (let [window-events (take (inc exit-idx) events)
+            after-enter (drop enter-idx window-events)
+            memory-snapshots (filter #(= :memory-snapshot (:event-type %)) after-enter)
+            last-snapshot (last memory-snapshots)]
+        (println "  Events in window:" (count window-events))
+        (println "  Events after enter:" (count after-enter))
+        (println "  Memory snapshots found:" (count memory-snapshots))
+        (println "  Last snapshot exists?" (boolean last-snapshot))
+        (when last-snapshot
+          (println "  Last snapshot keys:" (keys (:memory-state last-snapshot))))
+        (:memory-state last-snapshot))
+      ;; Fallback: just get the latest memory snapshot in the trace
+      (let [all-snapshots (filter #(= :memory-snapshot (:event-type %)) events)
+            last-snapshot (last all-snapshots)]
+        (println "  FALLBACK: Total memory snapshots:" (count all-snapshots))
+        (when last-snapshot
+          (println "  Fallback snapshot keys:" (keys (:memory-state last-snapshot))))
+        (or (:memory-state last-snapshot) {})))))
+
+(defn step-view-handler
+  "GET /debug/trace/:trace-id/view/:node-id
+
+  Renders the view at a specific execution step with historical state.
+  This enables 'time-travel' debugging - see the UI at any point in execution.
+
+  NOTE: Views are rendered from the already-captured Hiccup stored in memory,
+  not by re-executing the render function (which isn't serializable).
+
+  The :node-id param can be either:
+  - The view's :id from config (e.g., 'welcome', 'billing')
+  - The actual node-id from the tree (e.g., '0.0', '0.2.0')"
+  [request]
+  (try
+    (let [trace-id (-> request :path-params :trace-id java.util.UUID/fromString)
+          view-id-param (-> request :path-params :node-id) ;; Can be view :id or node-id
+          trace (debug/get-trace trace-id)]
+
+      (if-not trace
+        {:status 404
+         :headers {"Content-Type" "text/html"}
+         :body "<html><body><h1>404 - Trace not found</h1></body></html>"}
+
+        (let [;; Find the view node in the tree structure (by view :id or node-id)
+              view-node (find-view-node-in-tree (:tree-structure trace) view-id-param)
+
+              ;; Get the actual node-id from the found node
+              actual-node-id (:node-id view-node)
+
+              ;; Get the FINAL memory snapshot (has all view outputs)
+              ;; Memory snapshots are global, not per-node, so we just take the last one
+              final-memory-snapshot (->> (:execution-events trace)
+                                        (filter #(= :memory-snapshot (:event-type %)))
+                                        last
+                                        :memory-state)
+
+              ;; Extract the already-rendered view from memory
+              ;; View nodes store their output in ::ai.obney.grain.behavior_tree_v2.core.nodes/view-outputs
+              view-outputs-key (keyword "ai.obney.grain.behavior-tree-v2.core.nodes" "view-outputs")
+
+              ;; Try to find rendered output using view-config :id (keyword)
+              view-config-id (get-in view-node [:view-config :id])
+              rendered-hiccup (get-in final-memory-snapshot [view-outputs-key view-config-id])]
+
+          (println "🔍 step-view-handler debug:")
+          (println "  view-id-param:" view-id-param)
+          (println "  view-node found?" (boolean view-node))
+          (println "  actual-node-id:" actual-node-id)
+          (println "  view-config-id:" view-config-id)
+          (println "  final-memory-snapshot keys:" (keys final-memory-snapshot))
+          (println "  view-outputs in memory:" (keys (get final-memory-snapshot view-outputs-key)))
+          (println "  rendered-hiccup found?" (boolean rendered-hiccup))
+
+          (if (and view-node rendered-hiccup)
+            ;; Render the already-captured Hiccup with debug layout
+            (let [debug-layout (fn [content]
+                                [:html
+                                 [:head
+                                  [:meta {:charset "UTF-8"}]
+                                  [:title "Debug View: " (str view-id-param)]
+                                  [:style
+                                   "body { font-family: sans-serif; margin: 0; }
+                                    .debug-banner { background: #ff9800; color: white; padding: 0.5rem 1rem; }
+                                    .debug-info { background: #f5f5f5; padding: 0.5rem 1rem; border-bottom: 1px solid #ddd; }
+                                    .debug-info code { background: #fff; padding: 0.2rem 0.4rem; border-radius: 3px; }"]]
+                                 [:body
+                                  [:div.debug-banner
+                                   "🔍 Debug View (Time-Travel Mode)"]
+                                  [:div.debug-info
+                                   [:strong "Trace ID:"] " " [:code (str trace-id)] " | "
+                                   [:strong "View:"] " " [:code (str view-config-id)] " | "
+                                   [:strong "Node:"] " " [:code (str actual-node-id)] " | "
+                                   [:a {:href (str "http://localhost:8082#/trace/" trace-id)} "← Back to debug UI"]]
+                                  content]])
+                  html-body (str (h/html rendered-hiccup))
+                  wrapped (str (h/html (debug-layout rendered-hiccup)))]
+              {:status 200
+               :headers {"Content-Type" "text/html; charset=utf-8"
+                         "Access-Control-Allow-Origin" "*"}
+               :body wrapped})
+
+            {:status 404
+             :headers {"Content-Type" "text/html"}
+             :body (str "<html><body style='font-family: monospace; padding: 2rem;'>"
+                       "<h1>404 - View not found</h1>"
+                       "<h3>Debug Information:</h3>"
+                       "<p><strong>View ID param:</strong> " (str view-id-param) "</p>"
+                       "<p><strong>View node in tree:</strong> " (if view-node "Yes" "No") "</p>"
+                       (when view-node
+                         (str "<p><strong>Actual node-id:</strong> " actual-node-id "</p>"
+                              "<p><strong>View config ID:</strong> " view-config-id "</p>"))
+                       "<p><strong>Rendered output in memory:</strong> " (if rendered-hiccup "Yes" "No") "</p>"
+                       "<p><strong>Memory snapshot exists:</strong> " (if final-memory-snapshot "Yes" "No") "</p>"
+                       (when final-memory-snapshot
+                         (str "<p><strong>Memory snapshot keys:</strong> " (pr-str (keys final-memory-snapshot)) "</p>"
+                              "<p><strong>View outputs key:</strong> " (pr-str view-outputs-key) "</p>"
+                              "<p><strong>View outputs in memory:</strong> "
+                              (pr-str (keys (get final-memory-snapshot view-outputs-key))) "</p>"
+                              "<h4>Full view outputs map:</h4>"
+                              "<pre style='background: #f5f5f5; padding: 1rem; overflow: auto;'>"
+                              (with-out-str (clojure.pprint/pprint (get final-memory-snapshot view-outputs-key)))
+                              "</pre>"))
+                       "</body></html>")}))))
+    (catch Exception e
+      {:status 500
+       :headers {"Content-Type" "text/html"}
+       :body (str "<html><body><h1>Error rendering view</h1><pre>"
+                 (.getMessage e) "\n\n"
+                 (clojure.string/join "\n" (.getStackTrace e))
+                 "</pre></body></html>")})))
+
+;;
+;; View Data API (for client-side rendering)
+;;
+
+(defn view-data-handler
+  "GET /debug/trace/:trace-id/view-data/:node-id
+
+  Returns the Hiccup data for a view node as Transit JSON.
+  This allows the debug UI to render views directly without iframe."
+  [request]
+  (try
+    (let [trace-id (-> request :path-params :trace-id java.util.UUID/fromString)
+          view-id-param (-> request :path-params :node-id)
+          trace (debug/get-trace trace-id)]
+
+      (if-not trace
+        {:status 404
+         :headers (merge cors-headers {"Content-Type" "application/json"})
+         :body (serialize-transit {:error "Trace not found"
+                                  :trace-id (str trace-id)})}
+
+        (let [view-node (find-view-node-in-tree (:tree-structure trace) view-id-param)
+              actual-node-id (:node-id view-node)
+              final-memory-snapshot (->> (:execution-events trace)
+                                        (filter #(= :memory-snapshot (:event-type %)))
+                                        last
+                                        :memory-state)
+              view-outputs-key (keyword "ai.obney.grain.behavior-tree-v2.core.nodes" "view-outputs")
+              view-config-id (get-in view-node [:view-config :id])
+              rendered-hiccup (get-in final-memory-snapshot [view-outputs-key view-config-id])]
+
+          (if (and view-node rendered-hiccup)
+            {:status 200
+             :headers (merge cors-headers {"Content-Type" "application/json"})
+             :body (serialize-transit {:hiccup rendered-hiccup
+                                      :view-id view-config-id
+                                      :node-id actual-node-id
+                                      :trace-id (str trace-id)})}
+
+            {:status 404
+             :headers (merge cors-headers {"Content-Type" "application/json"})
+             :body (serialize-transit {:error "View not found"
+                                      :view-id view-id-param
+                                      :view-node-exists (boolean view-node)
+                                      :hiccup-exists (boolean rendered-hiccup)})}))))
+    (catch Exception e
+      {:status 500
+       :headers (merge cors-headers {"Content-Type" "application/json"})
+       :body (serialize-transit {:error (.getMessage e)
+                                :stack-trace (mapv str (.getStackTrace e))})})))
+
+;;
 ;; Routes
 ;;
 
@@ -193,6 +448,13 @@
      ;; Get latest trace for command
      [(str base-path "/trace/latest/:command-name") :get [get-latest-trace-handler] :route-name ::get-latest-trace]
 
+     ;; Render view from trace (time-travel debugging)
+     ;; Note: allow-iframe interceptor removes X-Frame-Options to enable iframe embedding
+     [(str base-path "/trace/:trace-id/view/:node-id") :get [allow-iframe step-view-handler] :route-name ::step-view]
+
+     ;; Get view data for client-side rendering (no iframe needed)
+     [(str base-path "/trace/:trace-id/view-data/:node-id") :get [view-data-handler] :route-name ::view-data]
+
      ;; Get statistics
      [(str base-path "/stats") :get [trace-stats-handler] :route-name ::trace-stats]
 
@@ -200,4 +462,15 @@
      [(str base-path "/clear") :post [clear-traces-handler] :route-name ::clear-traces]
 
      ;; SSE stream
-     [(str base-path "/stream") :get [trace-stream-handler] :route-name ::trace-stream]}))
+     [(str base-path "/stream") :get [trace-stream-handler] :route-name ::trace-stream]
+
+     ;; REPL eval (DEBUG ONLY - evaluates arbitrary code!)
+     [(str base-path "/eval") :post [(body-params/body-params) repl/eval-handler] :route-name ::repl-eval]
+
+     ;; CORS preflight for eval
+     [(str base-path "/eval") :options
+      [(fn [_] {:status 200
+               :headers {"Access-Control-Allow-Origin" "*"
+                        "Access-Control-Allow-Methods" "POST, OPTIONS"
+                        "Access-Control-Allow-Headers" "Content-Type"}})]
+      :route-name ::repl-eval-options]}))

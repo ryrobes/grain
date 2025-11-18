@@ -272,6 +272,47 @@
    (assoc db :expanded-groups #{})))
 
 ;;
+;; Terminal Toggle
+;;
+
+(rf/reg-event-db
+ ::toggle-terminal
+ (fn [db _]
+   (let [new-state (not (:terminal-visible db))]
+     (js/console.log "🎹 Toggle terminal event - Current:" (:terminal-visible db) "→ New:" new-state)
+     (assoc db :terminal-visible new-state))))
+
+(rf/reg-event-db
+ ::show-terminal
+ (fn [db _]
+   (assoc db :terminal-visible true)))
+
+(rf/reg-event-db
+ ::hide-terminal
+ (fn [db _]
+   (assoc db :terminal-visible false)))
+
+;;
+;; View Preview Toggle
+;;
+
+(rf/reg-event-db
+ ::show-view-preview
+ (fn [db [_ preview-url]]
+   (js/console.log "👁 Show view preview:" preview-url)
+   (assoc db
+          :view-preview-visible true
+          :view-preview-url preview-url)))
+
+(rf/reg-event-db
+ ::close-view-preview
+ (fn [db _]
+   (js/console.log "👁 Close view preview")
+   (assoc db
+          :view-preview-visible false
+          :view-preview-url nil)))
+
+;;
 ;; Error Handling
 ;;
 

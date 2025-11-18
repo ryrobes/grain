@@ -10,11 +10,22 @@
         label (when data (aget data "label"))
         duration (when data (aget data "duration"))
         has-memory-changes (when data (aget data "hasMemoryChanges"))
-        change-count (when data (aget data "changeCount"))]
+        change-count (when data (aget data "changeCount"))
+        node-type (when data (aget data "nodeType"))
+        node-id (when data (aget data "nodeId"))
+        trace-id (when data (aget data "traceId"))
+        is-view-node (= node-type "view")]
 
     (react/createElement "div"
       #js {:className "p-3 relative"
            :style #js {:minWidth "180px"}}
+
+      ;; View node indicator badge (top-left corner)
+      (when is-view-node
+        (react/createElement "div"
+          #js {:className "absolute -top-1 -left-1 bg-purple-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm"
+               :title "View node - click to preview"}
+          "👁"))
 
       ;; Memory change indicator badge (top-right corner)
       (when has-memory-changes
@@ -40,4 +51,16 @@
           (react/createElement "span" nil "⏱")
           (react/createElement "span"
             #js {:className "font-mono"}
-            (str duration "ms")))))))
+            (str duration "ms"))))
+
+      ;; View preview button (for view nodes)
+      (when is-view-node
+        (react/createElement "div"
+          #js {:className "mt-2 pt-2 border-t border-gray-200"}
+          (react/createElement "a"
+            #js {:href (str "/debug/trace/" trace-id "/view/" node-id)
+                 :target "_blank"
+                 :className "text-xs bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded inline-flex items-center gap-1"
+                 :onClick (fn [e] (.stopPropagation e))}
+            (react/createElement "span" nil "👁")
+            (react/createElement "span" nil "Preview")))))))

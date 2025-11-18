@@ -1,0 +1,5 @@
+{:paths ["src" "resources"]
+ :deps {hiccup/hiccup {:mvn/version "2.0.0-RC3"}
+        io.pedestal/pedestal.service {:mvn/version "0.7.0"}}
+ :aliases {:test {:extra-paths ["test"]
+                  :extra-deps {}}}}

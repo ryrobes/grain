@@ -5,7 +5,8 @@
             [re-com.core :as rc]
             [store.subs :as subs]
             [store.events :as events]
-            [styles.core :as s]))
+            [styles.core :as s]
+            [components.view-node-details :as view-details]))
 
 (defn format-memory
   "Format memory state as pretty JSON"
@@ -334,10 +335,15 @@
   (let [selected-node @(rf/subscribe [::subs/selected-node])
         all-events @(rf/subscribe [::subs/execution-events])
         emitted-events-flat @(rf/subscribe [::subs/all-events-flat])
+        tree-structure @(rf/subscribe [::subs/tree-structure])
+        current-trace @(rf/subscribe [::subs/current-trace])
+        trace-id (:trace-id current-trace)
+        unprefixed-id (strip-prefix selected-node)
         is-event-node? (is-event-annotation-node? selected-node)
         is-read-model-node? (is-read-model-annotation-node? selected-node)
         is-memory-node? (is-memory-annotation-node? selected-node)
         is-dspy-node? (is-dspy-annotation-node? selected-node)
+        is-view-node? (view-details/is-view-node? unprefixed-id tree-structure)
         selected-events (when is-event-node?
                          (extract-events-from-node-id selected-node all-events))
         selected-read-models (when is-read-model-node?
@@ -360,6 +366,7 @@
            is-read-model-node? "Read Model Queries"
            is-memory-node? "Memory Diff"
            is-dspy-node? "DSPy AI Call"
+           is-view-node? "View Node"
            selected-node "Node Details"
            :else "EXECUTION TIMELINE")]
         (when selected-node
@@ -627,12 +634,19 @@
                                 :color "#6ee7b7"}}
                   json-str])]))]
 
+         ;; View node - show view-specific details
+         is-view-node?
+         [view-details/view-node-details {:node-id unprefixed-id
+                                           :trace-id trace-id
+                                           :tree-structure tree-structure}]
+
          ;; Regular node selected - show node details
          (and selected-node
               (not is-memory-node?)
               (not is-read-model-node?)
               (not is-event-node?)
-              (not is-dspy-node?))
+              (not is-dspy-node?)
+              (not is-view-node?))
          (let [unprefixed-id (strip-prefix selected-node)
                node-events (filter #(= (:node-id %) unprefixed-id) all-events)
                memory-events (get-memory-snapshots-for-node all-events unprefixed-id)]

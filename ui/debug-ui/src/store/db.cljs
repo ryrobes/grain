@@ -11,6 +11,9 @@
    :sse-connected false          ; SSE connection status
    :view-mode :hybrid            ; View mode: :control-flow, :event-model, :data-flow, :hybrid
    :expanded-groups #{}          ; Set of expanded command names
+   :terminal-visible false       ; REPL terminal visibility
+   :view-preview-visible false   ; View preview iframe visibility
+   :view-preview-url nil         ; URL for view preview iframe
    ;; API base URL - read from window.GRAIN_DEBUG_CONFIG.apiBase or default to localhost
    :api-base (or (when (exists? js/window.GRAIN_DEBUG_CONFIG)
                    (.-apiBase js/window.GRAIN_DEBUG_CONFIG))

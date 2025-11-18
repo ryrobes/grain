@@ -3,7 +3,8 @@
   (:require [ai.obney.grain.behavior-tree-v2.interface :as bt]
             [ai.obney.grain.event-store-v2.interface :as es]
             [ai.obney.grain.behavior-tree-v2-dspy-extensions.interface :refer [dspy]]
-            [ai.obney.grain.debug-example-service.core.signatures :as sigs]))
+            [ai.obney.grain.debug-example-service.core.signatures :as sigs]
+            [ai.obney.grain.view-router.htmx :as htmx]))
 
 ;;
 ;; Example Behavior Trees
@@ -443,3 +444,290 @@
                    :instructions (:recipe_instructions @st-memory)}]
         (es/append event-store {:events [event]})
         bt/success))]])
+
+;;
+;; View-Based Wizard Flow Example
+;;
+
+;; View functions for wizard steps
+(defn welcome-view [{:keys [st-memory]}]
+  [:div.wizard-step {:style {:padding "2rem"
+                             :background "#ffffff"
+                             :border-radius "8px"}}
+   [:h1 {:style {:font-size "2rem"
+                 :font-weight "600"
+                 :margin "0 0 1rem 0"
+                 :color "#111827"}}
+    "🧙 Account Setup Wizard"]
+   [:p {:style {:margin "0 0 1rem 0"
+                :color "#374151"
+                :line-height "1.6"}}
+    "Welcome! This wizard will guide you through setting up your account."]
+   [:p {:style {:margin "0 0 1.5rem 0"
+                :color "#6b7280"
+                :font-size "0.875rem"
+                :line-height "1.6"}}
+    "This demo showcases Grain's view integration - each step is a :view node in the behavior tree."]
+   [:div.progress-bar {:style {:background "#e5e7eb"
+                               :height "8px"
+                               :border-radius "4px"
+                               :margin "1.5rem 0"
+                               :overflow "hidden"}}
+    [:div.fill {:style {:background "linear-gradient(90deg, #10b981, #059669)"
+                        :height "100%"
+                        :width "10%"
+                        :border-radius "4px"
+                        :transition "width 0.3s ease"}}]]
+   (htmx/form {:action :wizard/start}
+     [:button.primary {:style {:padding "0.625rem 1.25rem"
+                               :border "none"
+                               :border-radius "6px"
+                               :cursor "pointer"
+                               :font-size "1rem"
+                               :font-weight "500"
+                               :background "#10b981"
+                               :color "white"
+                               :transition "all 0.2s"}}
+      "Get Started →"])])
+
+(defn company-info-view [{:keys [st-memory]}]
+  (let [errors (get @st-memory ::validation-errors)
+        data (get @st-memory ::company-data {})]
+    [:div.wizard-step
+     [:h2 "Step 1: Company Information"]
+     [:div.progress-bar
+      [:div.fill {:style "width: 35%"}]]
+
+     (when errors
+       [:div.errors
+        [:p.error "Please correct the following errors:"]
+        (for [err errors]
+          [:p.error "• " err])])
+
+     (htmx/form {:action :wizard/submit-company}
+       [:div
+        [:label "Company Name *"]
+        [:input {:name "company-name"
+                 :value (:company-name data)
+                 :required true
+                 :placeholder "Acme Corp"}]]
+
+       [:div
+        [:label "Industry"]
+        [:input {:name "industry"
+                 :value (:industry data)
+                 :placeholder "Technology, Healthcare, etc."}]]
+
+       [:div
+        [:label "Employee Count"]
+        [:select {:name "employee-count"}
+         [:option "1-10"]
+         [:option "11-50"]
+         [:option "51-200"]
+         [:option "201+"]]]
+
+       [:div {:style "margin-top: 1rem;"}
+        (htmx/button {:action :wizard/back-to-welcome
+                      :class "secondary"}
+                     "← Back")
+        [:button.primary {:type "submit"} "Next →"]])]))
+
+(defn billing-view [{:keys [st-memory]}]
+  (let [company-name (get @st-memory ::company-name "your company")]
+    [:div.wizard-step
+     [:h2 "Step 2: Billing Information"]
+     [:div.progress-bar
+      [:div.fill {:style "width: 65%"}]]
+
+     [:div {:style "background: #f5f5f5; padding: 1rem; border-radius: 4px; margin: 1rem 0;"}
+      [:h3 "Standard Plan for " company-name]
+      [:p "✓ Unlimited users"]
+      [:p "✓ 24/7 support"]
+      [:p "✓ Advanced analytics"]
+      [:p {:style "font-size: 1.5rem; font-weight: bold; margin-top: 1rem;"} "$99/month"]]
+
+     (htmx/form {:action :wizard/submit-billing}
+       [:div
+        [:label "Card Number *"]
+        [:input {:name "card-number"
+                 :required true
+                 :placeholder "4242 4242 4242 4242"}]]
+
+       [:div {:style "display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;"}
+        [:div
+         [:label "Expiry *"]
+         [:input {:name "expiry"
+                  :required true
+                  :placeholder "MM/YY"}]]
+        [:div
+         [:label "CVC *"]
+         [:input {:name "cvc"
+                  :required true
+                  :placeholder "123"}]]]
+
+       [:div {:style "margin-top: 1rem;"}
+        (htmx/button {:action :wizard/back-to-company
+                      :class "secondary"}
+                     "← Back")
+        [:button.primary {:type "submit"} "Complete Setup →"]])]))
+
+(defn processing-view [{:keys [st-memory]}]
+  (let [progress (get @st-memory ::progress 80)]
+    [:div.wizard-step
+     [:h2 "⚙️ Setting Up Your Account..."]
+     [:div.progress-bar
+      [:div.fill {:style (str "width: " progress "%")}]]
+
+     [:div {:style "margin: 2rem 0;"}
+      [:p "Please wait while we:"]
+      [:ul {:style "list-style: none; padding-left: 0;"}
+       [:li "✓ Create your account"]
+       [:li "✓ Provision resources"]
+       [:li "✓ Send welcome email"]]]
+
+     [:div {:id "status"
+            :style "font-style: italic; color: #666;"}
+      "Initializing..."]]))
+
+(defn complete-view [{:keys [st-memory]}]
+  (let [company-name (get @st-memory ::company-name "")
+        account-id (get @st-memory ::account-id)]
+    [:div.wizard-step.complete
+     [:h1 "✅ All Set!"]
+     [:p "Welcome to the platform, " [:strong company-name] "!"]
+     [:div {:style "background: #e8f5e9; padding: 1rem; border-radius: 4px; margin: 1rem 0;"}
+      [:p "Your account ID: " [:code account-id]]]
+     [:div {:style "margin-top: 2rem;"}
+      [:a.button.primary {:href "/dashboard"} "Go to Dashboard"]]]))
+
+;; The wizard behavior tree with :view nodes
+(def wizard-flow-tree
+  "Multi-step wizard demonstrating :view nodes and HTMX integration."
+  [:sequence
+
+   ;; Step 1: Welcome Screen
+   [:view {:id :welcome
+           :route "/wizard/welcome"}
+    welcome-view]
+
+   ;; Wait for user to click "Get Started"
+   [:action {:id :await-start}
+    (fn [{:keys [st-memory]}]
+      ;; In a real app, this would wait for an event
+      ;; For now, we just simulate immediate continuation
+      (swap! st-memory assoc ::wizard-started true)
+      bt/success)]
+
+   ;; Step 2: Company Info (with validation loop)
+   [:sequence
+    [:view {:id :company-info
+            :route "/wizard/company"}
+     company-info-view]
+
+    [:action {:id :await-company-data}
+     (fn [{:keys [st-memory]}]
+       ;; Simulate waiting for form submission
+       (swap! st-memory assoc ::company-data {:company-name "Demo Corp"
+                                                :industry "Technology"
+                                                :employee-count "11-50"})
+       bt/success)]
+
+    [:action {:id :validate-company}
+     (fn [{:keys [st-memory]}]
+       (let [data (get @st-memory ::company-data)]
+         (if (and (:company-name data)
+                  (not (clojure.string/blank? (:company-name data))))
+           (do
+             (swap! st-memory assoc ::company-name (:company-name data))
+             (swap! st-memory dissoc ::validation-errors)
+             bt/success)
+           (do
+             (swap! st-memory assoc ::validation-errors ["Company name is required"])
+             bt/failure))))]
+
+    [:action {:id :save-company-data}
+     (fn [{:keys [st-memory event-store]}]
+       (let [aggregate-id (random-uuid)
+             data (get @st-memory ::company-data)
+             event {:event/type :wizard/company-info-submitted
+                    :event/id (random-uuid)
+                    :event/timestamp (java.time.Instant/now)
+                    :event/tags [[:wizard-session aggregate-id]]
+                    :company-data data}]
+         (es/append event-store {:events [event]})
+         bt/success))]]
+
+   ;; Step 3: Billing Info
+   [:sequence
+    [:view {:id :billing
+            :route "/wizard/billing"}
+     billing-view]
+
+    [:action {:id :await-billing-data}
+     (fn [{:keys [st-memory]}]
+       ;; Simulate form submission
+       (Thread/sleep 100)
+       (swap! st-memory assoc ::billing-data {:card-number "****4242"
+                                               :expiry "12/25"})
+       bt/success)]
+
+    [:action {:id :validate-billing}
+     (fn [{:keys [st-memory]}]
+       ;; Simple validation
+       (let [data (get @st-memory ::billing-data)]
+         (if (and (:card-number data) (:expiry data))
+           bt/success
+           bt/failure)))]]
+
+   ;; Step 4: Processing (parallel background tasks with view)
+   [:parallel
+    [:view {:id :processing
+            :route "/wizard/processing"}
+     processing-view]
+
+    [:sequence
+     [:action {:id :create-account}
+      (fn [{:keys [st-memory]}]
+        (swap! st-memory assoc ::progress 85)
+        (Thread/sleep 300)
+        (swap! st-memory assoc ::account-id (str "ACC-" (random-uuid)))
+        (swap! st-memory update :logs (fnil conj [])
+               {:timestamp (java.time.Instant/now)
+                :message "Account created"})
+        bt/success)]
+
+     [:action {:id :provision-resources}
+      (fn [{:keys [st-memory]}]
+        (swap! st-memory assoc ::progress 92)
+        (Thread/sleep 200)
+        (swap! st-memory update :logs (fnil conj [])
+               {:timestamp (java.time.Instant/now)
+                :message "Resources provisioned"})
+        bt/success)]
+
+     [:action {:id :send-welcome-email}
+      (fn [{:keys [st-memory]}]
+        (swap! st-memory assoc ::progress 100)
+        (Thread/sleep 150)
+        (swap! st-memory update :logs (fnil conj [])
+               {:timestamp (java.time.Instant/now)
+                :message "Welcome email sent"})
+        bt/success)]]]
+
+   ;; Step 5: Completion
+   [:sequence
+    [:view {:id :complete
+            :route "/wizard/complete"}
+     complete-view]
+
+    [:action {:id :finalize-wizard}
+     (fn [{:keys [st-memory event-store]}]
+       (let [aggregate-id (get @st-memory ::account-id)
+             event {:event/type :wizard/completed
+                    :event/id (random-uuid)
+                    :event/timestamp (java.time.Instant/now)
+                    :event/tags [[:account-id aggregate-id]]
+                    :company-name (get @st-memory ::company-name)
+                    :account-id aggregate-id}]
+         (es/append event-store {:events [event]})
+         bt/success))]]])

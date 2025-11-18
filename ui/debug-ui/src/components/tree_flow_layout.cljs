@@ -38,13 +38,25 @@
 (defn create-flow-node
   "Create a React Flow node from a tree node"
   [tree-node x y status]
-  {:id (:node-id tree-node)
-   :type "default"
-   :data {:label (:label tree-node)
-          :node-type (:type tree-node)}
-   :position {:x x :y y}
-   :className (name (or status :pending))
-   :style {:cursor "pointer"}})
+  (let [;; Extract trace ID and original node ID from prefixed node-id
+        ;; Format is: "trace-uuid-original-node-id" where original-node-id is like "0", "0.1", "0.1.2"
+        ;; We find the last "-" followed by a digit to split trace from node ID
+        node-id-str (:node-id tree-node)
+        ;; Match everything before the last "-digit" pattern as trace-id
+        match (re-matches #"(.+)-([0-9].*)$" node-id-str)
+        trace-id (when match (nth match 1))
+        original-id (if match
+                     (nth match 2)
+                     node-id-str)]
+    {:id node-id-str
+     :type "default"
+     :data {:label (:label tree-node)
+            :nodeType (name (:type tree-node))
+            :nodeId original-id
+            :traceId trace-id}
+     :position {:x x :y y}
+     :className (name (or status :pending))
+     :style {:cursor "pointer"}}))
 
 (defn create-edge
   "Create a React Flow edge between two nodes"
@@ -138,6 +150,20 @@
                    (if edge (conj edges edge) edges)
                    node-id))
 
+          ;; View - render like action node
+          (= :view child-type)
+          (let [node-id (:node-id child)
+                status (get node-status-map node-id :pending)
+                node (create-flow-node child start-x y status)
+                edge (when prev-id
+                      (create-edge prev-id node-id :label (when (= :condition (:type (peek nodes)))
+                                                            "YES")))]
+            (recur (rest remaining)
+                   (+ y v-spacing)
+                   (conj nodes node)
+                   (if edge (conj edges edge) edges)
+                   node-id))
+
           ;; Nested sequence - flatten it
           (= :sequence child-type)
           (let [result (layout-sequence (:children child) start-x y node-status-map)
@@ -217,8 +243,8 @@
                (= :fallback (:type branch))
                (layout-fallback (:children branch) branch-x branch-y node-status-map)
 
-               ;; Branch is a leaf node (action or condition)
-               (#{:action :condition} (:type branch))
+               ;; Branch is a leaf node (action, condition, or view)
+               (#{:action :condition :view} (:type branch))
                (let [node-id (:node-id branch)
                      status (get node-status-map node-id :pending)
                      node (create-flow-node branch branch-x branch-y status)]

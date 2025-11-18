@@ -18,7 +18,7 @@
   (http/stop server))
 
 (defn start
-  [{:http/keys [routes] :as config}] 
+  [{:http/keys [routes] :as config}]
   (ig/init
    (cond-> (update system
                    ::server
@@ -29,7 +29,7 @@
                      :https/host ::http/host
                      :http/join? ::http/join?
                      :http/routes ::http/routes}))
-     routes 
+     routes
      (assoc-in [::server ::http/routes] #(route/expand-routes routes)))))
 
 (defn stop 

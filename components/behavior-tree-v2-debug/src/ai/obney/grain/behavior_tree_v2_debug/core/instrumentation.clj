@@ -140,6 +140,30 @@
                      :label predicate-name
                      :condition-config (clean-config condition-config)})
 
+                  ;; View node: [:view {...} render-fn]
+                  (and (vector? node)
+                       (= :view (first node)))
+                  (let [view-config (when (map? (second node)) (second node))
+                        render-fn (if view-config
+                                   (nth node 2 nil)
+                                   (second node))
+                        view-name (cond
+                                   (:id view-config)
+                                   (let [id (:id view-config)]
+                                     (if (keyword? id) (name id) (str id)))
+                                   (var? render-fn)
+                                   (str (:name (meta render-fn)))
+                                   (symbol? render-fn) (str render-fn)
+                                   (fn? render-fn)
+                                   (or (some-> render-fn type str (clojure.string/replace #".*\$" "") (clojure.string/replace #"@.*" ""))
+                                       "view-fn")
+                                   :else "view")]
+                    {:node-id node-id
+                     :type :view
+                     :label view-name
+                     :view-config (clean-config view-config)
+                     :render-fn "<function>"})
+
                   ;; Unknown node type
                   :else
                   {:node-id node-id

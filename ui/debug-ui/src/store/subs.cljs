@@ -44,6 +44,11 @@
    (:error db)))
 
 (rf/reg-sub
+ ::api-base
+ (fn [db _]
+   (:api-base db)))
+
+(rf/reg-sub
  ::selected-node
  (fn [db _]
    (:selected-node db)))
@@ -67,6 +72,23 @@
  ::expanded-groups
  (fn [db _]
    (:expanded-groups db)))
+
+(rf/reg-sub
+ ::terminal-visible
+ (fn [db _]
+   (let [visible (:terminal-visible db)]
+     (js/console.log "🎹 Subscription read - terminal-visible:" visible)
+     visible)))
+
+(rf/reg-sub
+ ::view-preview-visible
+ (fn [db _]
+   (:view-preview-visible db)))
+
+(rf/reg-sub
+ ::view-preview-url
+ (fn [db _]
+   (:view-preview-url db)))
 
 ;;
 ;; Derived Subscriptions

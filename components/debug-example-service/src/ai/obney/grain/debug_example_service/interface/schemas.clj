@@ -15,7 +15,9 @@
                                        [:genre {:optional true} :string]
                                        [:characters {:optional true} [:vector :string]]]
    :debug-example/ai-recipe-suggester [:map
-                                        [:items {:optional true} [:vector :string]]]})
+                                        [:items {:optional true} [:vector :string]]]
+   ;; View-based wizard flow
+   :debug-example/wizard-flow [:map]})
 
 #_{:clojure-lsp/ignore [:clojure-lsp/unused-public-var]}
 (defschemas events

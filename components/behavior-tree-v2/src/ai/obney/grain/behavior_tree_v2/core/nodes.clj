@@ -104,6 +104,26 @@
      :opts opts
      :action-fn (first children)}))
 
+;;
+;; View
+;;
+
+(defmethod p/tick :view
+  [{:keys [render-fn opts] :as _node} context]
+  ;; Views always succeed - they're presentation, not control flow
+  ;; Store rendered output in st-memory for later retrieval
+  (let [rendered (render-fn (assoc context :opts opts))]
+    (when-let [st-mem (:st-memory context)]
+      (swap! st-mem assoc-in [::view-outputs (:id opts)] rendered))
+    p/success))
+
+(defmethod p/build :view
+  [node-type args]
+  (let [[opts children] (opts+children args)]
+    {:type node-type
+     :opts opts
+     :render-fn (first children)}))
+
 
 
   (comment

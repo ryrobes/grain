@@ -9,6 +9,8 @@
             [components.tree-view :refer [tree-view]]
             [components.node-details :refer [node-details]]
             [components.timeline-bar :refer [timeline-bar]]
+            [components.repl-terminal :refer [repl-terminal]]
+            [components.view-preview-panel :refer [view-preview-panel]]
             [styles.core :as s]))
 
 ;; Global hover state atoms
@@ -502,74 +504,87 @@
 
 (defn app
   []
-  [rc/v-box
-   :style (merge s/h-screen s/w-screen s/flex s/flex-col s/overflow-hidden)
-   :children
-   [;; Error banner
-    [error-banner]
+  (r/create-class
+   {:component-did-mount
+    (fn [_]
+      ;; Global keyboard handler for Ctrl+J (like VS Code's terminal toggle)
+      (let [handler (fn [e]
+                     (when (and (.-ctrlKey e) (= (.-key e) "j"))
+                       (.preventDefault e)
+                       (rf/dispatch [::events/toggle-terminal])))]
+        (js/document.addEventListener "keydown" handler)
+        (set! js/window.___terminal_key_handler handler)))
 
-    ;; Header with GRAIN SANDMAN title
-    ;; [:div
-    ;;  {:style (merge s/bg-gray-900   s/px-6 s/py-4
-    ;;                 s/flex s/items-center s/justify-end)}
-    ;; ;;  [:div
-    ;; ;;   {:style {:margin-left "auto"
-    ;; ;;            :height "45px"
-    ;; ;;            :display "flex"
-    ;; ;;            :flex-direction "column"
-    ;; ;;            :align-items "flex-end"
-    ;; ;;            :justify-content "center"
-    ;; ;;            :gap "0px"}}
-    ;; ;;   [:div
-    ;; ;;    {:style {:font-size "64px"
-    ;; ;;             :font-weight 900
-    ;; ;;             :font-family "Outfit, ui-sans-serif, system-ui"
-    ;; ;;             :box-shadow "0 12px 15px rgba(0,0,0,0.2)"
-    ;; ;;             :text-shadow "6px 0px 0px rgba(0, 242, 255, 1), -19px 0px 27px rgba(0, 242, 255, 0.22)"
-    ;; ;;             :line-height "0.8"
-    ;; ;;             :margin-top "5px"}}
-    ;; ;;    "GRAIN"]
-    ;; ;;   [:div
-    ;; ;;    {:style {:font-size "26px"
-    ;; ;;             :font-weight 900
-    ;; ;;             :font-family "Outfit, ui-sans-serif, system-ui"
-    ;; ;;             :text-shadow "5px 0px 0px rgba(0, 242, 255, 1), -4px 0px 6px rgba(0, 242, 255, 0.22)"
-    ;; ;;             :letter-spacing "0.1em"
-    ;; ;;             :margin-top "-8px"
-    ;; ;;             :margin-right "-16px"}}
-    ;; ;;    "\"SANDMAN\""]]
-       
-    ;;  [logo]
+    :component-will-unmount
+    (fn [_]
+      (when-let [handler js/window.___terminal_key_handler]
+        (js/document.removeEventListener "keydown" handler)))
 
-    ;;    ]
+    :reagent-render
+    (fn []
+      (let [terminal-visible @(rf/subscribe [::subs/terminal-visible])
+            view-preview-visible @(rf/subscribe [::subs/view-preview-visible])
+            bottom-panel-visible (or terminal-visible view-preview-visible)]
+        [rc/v-box
+         :style (merge s/h-screen s/w-screen s/flex s/flex-col s/overflow-hidden {:position "relative"})
+         :children
+         [;; Error banner
+          [error-banner]
 
-    ;; [view-mode-toggle]
-    ;; [node-type-legend]
+          [rc/h-box
+           :justify :between
+           :children
+           [[rc/v-box
+             :children
+             [[view-mode-toggle]
+              [node-type-legend]]]
+            [logo]]]
 
-    [rc/h-box
-     :justify :between 
-     :children
-     [[rc/v-box
-       :children
-       [[view-mode-toggle]
-        [node-type-legend]]]
-      [logo]]]
+          ;; Trace info bar
+          [trace-info-bar]
 
-    ;; Trace info bar
-    [trace-info-bar]
+          ;; Main content (adjusted height when bottom panel visible)
+          [rc/h-box
+           :style (merge s/flex-1 s/flex s/overflow-hidden
+                        {:transition "all 0.3s ease"
+                         :height (if bottom-panel-visible "60%" "100%")})
+           :children
+           [;; Trace list sidebar (left)
+            [:div {:style (merge s/w-80 s/flex-shrink-0)}
+             [trace-list]]
 
-    ;; Main content
-    [rc/h-box
-     :style (merge s/flex-1 s/flex s/overflow-hidden)
-     :children
-     [;; Trace list sidebar (left)
-      [:div {:style (merge s/w-80 s/flex-shrink-0)}
-       [trace-list]]
+            ;; Tree visualization (center)
+            [:div {:style (merge s/flex-1 s/relative)}
+             [tree-view]]
 
-      ;; Tree visualization (center)
-      [:div {:style (merge s/flex-1 s/relative)}
-       [tree-view]]
+            ;; Node details (right)
+            [:div {:style (merge s/w-96 s/flex-shrink-0)}
+             [node-details]]]]
 
-      ;; Node details (right)
-      [:div {:style (merge s/w-96 s/flex-shrink-0)}
-       [node-details]]]]]])
+          ;; Bottom panel (terminal or view preview, slides in)
+          [:div {:style {:position "absolute"
+                        :bottom 0
+                        :left 0
+                        :right 0
+                        :height (if bottom-panel-visible "40%" "0%")
+                        :background-color "#0f172a"
+                        :border-top (if bottom-panel-visible
+                                     (str "2px solid " (if view-preview-visible "#a78bfa" "#fcd34d"))
+                                     "none")
+                        :transition "height 0.3s ease, border-top 0.3s ease"
+                        :overflow "hidden"
+                        :z-index 100}}
+           (cond
+             terminal-visible
+             (do
+               (js/console.log "🎹 Rendering terminal component!")
+               [repl-terminal])
+
+             view-preview-visible
+             (do
+               (js/console.log "👁 Rendering view preview component!")
+               [view-preview-panel])
+
+             :else
+             nil)]]]))}))
+

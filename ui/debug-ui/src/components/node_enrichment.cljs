@@ -175,7 +175,10 @@
         duration (get duration-map unprefixed-id)
         changes (get changes-map unprefixed-id)
         current-label (get-in node [:data :label])
-        node-type (get-in node [:data :node-type])]
+        ;; Get nodeType (camelCase) from data
+        node-type (get-in node [:data :nodeType])
+        node-id-data (get-in node [:data :nodeId])
+        trace-id-data (get-in node [:data :traceId])]
 
     ;; Use custom node type and structure data for rich display
     (-> node
@@ -184,7 +187,13 @@
                 {:label current-label
                  :duration duration
                  :memory-diff (when (seq changes) (format-memory-diff changes))
-                 :node-type node-type}))))
+                 ;; Preserve view-related data
+                 :nodeType node-type
+                 :nodeId node-id-data
+                 :traceId trace-id-data
+                 ;; Also set hasMemoryChanges for the badge
+                 :hasMemoryChanges (boolean (seq changes))
+                 :changeCount (count changes)}))))
 
 (defn create-annotation-node
   "Create an annotation node positioned to the LEFT of a main node.

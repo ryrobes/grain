@@ -115,6 +115,19 @@
                            :trace-id (:trace-id trace)
                            :message "Recipe suggested"}}))
 
+(defn wizard-flow [context]
+  "Execute the multi-step wizard flow with :view nodes."
+  (let [build-context {:event-store (:event-store context)
+                       :st-memory {:logs []}}
+        {:keys [result trace]} (debug/run-with-tracing
+                                 trees/wizard-flow-tree
+                                 build-context
+                                 :debug-example/wizard-flow
+                                 {:streaming? true})]
+    {:command-result/data {:result (if (= result :success) :success :failure)
+                           :trace-id (:trace-id trace)
+                           :message "Wizard flow completed"}}))
+
 (def commands
   {:debug-example/simple-task {:handler-fn #'simple-task
                                 :schema [:map]}
@@ -135,4 +148,7 @@
                                                 [:characters {:optional true} [:vector :string]]]}
    :debug-example/ai-recipe-suggester {:handler-fn #'ai-recipe-suggester
                                         :schema [:map
-                                                 [:items {:optional true} [:vector :string]]]}})
+                                                 [:items {:optional true} [:vector :string]]]}
+   ;; View-based wizard flow
+   :debug-example/wizard-flow {:handler-fn #'wizard-flow
+                                :schema [:map]}})

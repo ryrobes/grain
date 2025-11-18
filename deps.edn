@@ -26,6 +26,7 @@
                                poly/behavior-tree-v2-dspy-extensions {:local/root "components/behavior-tree-v2-dspy-extensions"}
                                poly/behavior-tree-v2-debug {:local/root "components/behavior-tree-v2-debug"}
                                poly/debug-routes {:local/root "components/debug-routes"}
+                               poly/view-router {:local/root "components/view-router"}
                                poly/clj-dspy {:local/root "components/clj-dspy"}
 
                                ;; Examples
