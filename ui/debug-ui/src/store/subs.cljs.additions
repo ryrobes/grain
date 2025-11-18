@@ -1,0 +1,34 @@
+;; Add this subscription to show latest trace for a session
+
+(rf/reg-sub
+ ::latest-trace-for-command
+ :<- [::traces]
+ (fn [traces [_ command-name]]
+   (when (seq traces)
+     (->> traces
+          (filter #(= command-name (:command-name %)))
+          (sort-by :started-at >)
+          first))))
+
+;; When viewing a live session, auto-switch to latest trace
+(rf/reg-sub
+ ::should-auto-select-latest
+ :<- [::current-trace]
+ :<- [::traces]
+ (fn [[current-trace traces] _]
+   (when current-trace
+     (let [command-name (:command-name current-trace)
+           current-trace-id (:trace-id current-trace)
+
+           ;; Find all traces for this command
+           session-traces (filter #(= command-name (:command-name %)) traces)
+
+           ;; Get the latest
+           latest (last (sort-by :started-at session-traces))
+           latest-id (:trace-id latest)
+
+           ;; Check if current is live and there's a newer one
+           current-live? (:live? (first (filter #(= current-trace-id (:trace-id %)) traces)))]
+
+       (when (and current-live? latest-id (not= current-trace-id latest-id))
+         latest-id)))))

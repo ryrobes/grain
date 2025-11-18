@@ -168,15 +168,37 @@
 (rf/reg-sub
  ::node-status-map
  :<- [::execution-events]
- (fn [events _]
+ :<- [::current-trace]
+ :<- [::executing-nodes]
+ :<- [::traces]
+ (fn [[events current-trace executing-nodes traces] _]
    (when events
-     (reduce
-      (fn [acc event]
-        (if (= (:event-type event) :node-exit)
-          (assoc acc (:node-id event) (:status event))
-          acc))
-      {}
-      events))))
+     (let [;; Build base status map from exit events
+           base-status (reduce
+                        (fn [acc event]
+                          (if (= (:event-type event) :node-exit)
+                            (assoc acc (:node-id event) (:status event))
+                            acc))
+                        {}
+                        events)
+
+           ;; Check if this trace is live
+           trace-in-list (first (filter #(= (:trace-id %) (:trace-id current-trace)) traces))
+           is-live? (:live? trace-in-list)
+
+           ;; If live, mark executing nodes as :executing (yellow pulse!)
+           status-with-live (if is-live?
+                             (reduce
+                              (fn [acc node-id]
+                                ;; Only mark as executing if not already completed
+                                (if (contains? acc node-id)
+                                  acc  ; Already has status, keep it
+                                  (assoc acc node-id :executing)))
+                              base-status
+                              executing-nodes)
+                             base-status)]
+
+       status-with-live))))
 
 (rf/reg-sub
  ::node-status

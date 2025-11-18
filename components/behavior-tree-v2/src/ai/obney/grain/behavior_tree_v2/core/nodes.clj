@@ -1,6 +1,9 @@
 (ns ai.obney.grain.behavior-tree-v2.core.nodes
   (:require [ai.obney.grain.behavior-tree-v2.interface.protocol :as p :refer [opts+children]]))
 
+;; Load interactive nodes (for blocking flows)
+(require 'ai.obney.grain.behavior-tree-v2.core.interactive-nodes)
+
 (defmethod p/tick :default
   [node _context]
   (throw (ex-info "Node type not implemented" {:node node})))

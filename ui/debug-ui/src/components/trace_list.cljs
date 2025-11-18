@@ -47,11 +47,11 @@
                                     :color "#fca5a5"
                                     :border-color (:red-700 s/colors)
                                     :opacity 0.5})
-                      ;; default
+                      ;; unknown/default - treat as running if we don't know
                       (merge s/px-2 s/py-0-5 s/text-xs s/rounded s/border
-                            {:background-color (:gray-800 s/colors)
-                             :color (:gray-300 s/colors)
-                             :border-color (:gray-600 s/colors)
+                            {:background-color (:yellow-900 s/colors)
+                             :color (:yellow-300 s/colors)
+                             :border-color (:yellow-700 s/colors)
                              :opacity 0.5}))
         animated? (= status :running)
         final-style (if animated?
@@ -72,7 +72,9 @@
 (defn trace-item
   "Render individual trace item (nested under group)"
   [{:keys [trace on-select selected?]}]
-  (let [{:keys [trace-id started-at duration-ms status]} trace
+  (let [{:keys [trace-id started-at duration-ms status live?]} trace
+        ;; Live traces show as :running (green pulse) instead of :error
+        display-status (if live? :running status)
         base-style (merge s/cursor-pointer s/transition-colors
                          {:padding "8px 12px 8px 28px"})  ; Left indent for nesting
         item-style (if selected?
@@ -92,10 +94,13 @@
        :children
        [[:span {:style (merge s/text-xs s/text-gray-300)}
          (format-timestamp started-at)]
-        [status-badge status]]]
+        [status-badge display-status]]]
 
-      ;; Bottom row: duration
-      [:span {:style (merge s/text-xs s/text-gray-500)} (str duration-ms "ms")]]]))
+      ;; Bottom row: duration or LIVE indicator
+      (if live?
+        [:span {:style (merge s/text-xs {:color "#10b981" :font-weight "600"})}
+         "🟢 LIVE SESSION"]
+        [:span {:style (merge s/text-xs s/text-gray-500)} (str duration-ms "ms")])]]))
 
 (defn trace-group-header
   "Render accordion group header with command name, count, and chevron"

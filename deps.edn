@@ -27,6 +27,7 @@
                                poly/behavior-tree-v2-debug {:local/root "components/behavior-tree-v2-debug"}
                                poly/debug-routes {:local/root "components/debug-routes"}
                                poly/view-router {:local/root "components/view-router"}
+                               poly/flow-session-manager {:local/root "components/flow-session-manager"}
                                poly/clj-dspy {:local/root "components/clj-dspy"}
 
                                ;; Examples

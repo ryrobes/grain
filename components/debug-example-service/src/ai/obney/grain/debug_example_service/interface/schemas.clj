@@ -17,7 +17,20 @@
    :debug-example/ai-recipe-suggester [:map
                                         [:items {:optional true} [:vector :string]]]
    ;; View-based wizard flow
-   :debug-example/wizard-flow [:map]})
+   :debug-example/wizard-flow [:map]
+   ;; Interactive wizard commands
+   :wizard/start-interactive [:map]
+   :wizard/continue [:map [:session-id {:optional true} :string]]
+   :wizard/submit-company [:map
+                           [:session-id :string]
+                           [:company-name :string]
+                           [:industry {:optional true} :string]
+                           [:employee-count {:optional true} :string]]
+   :wizard/submit-billing [:map
+                           [:session-id :string]
+                           [:card-number :string]
+                           [:expiry :string]
+                           [:cvc {:optional true} :string]]})
 
 #_{:clojure-lsp/ignore [:clojure-lsp/unused-public-var]}
 (defschemas events

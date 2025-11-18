@@ -164,6 +164,17 @@
                    (if edge (conj edges edge) edges)
                    node-id))
 
+          ;; View-Action - layout its children (view + action)
+          (= :view-action child-type)
+          (let [result (layout-sequence (:children child) start-x y node-status-map)
+                edge (when prev-id
+                      (create-edge prev-id (:start-node-id result)))]
+            (recur (rest remaining)
+                   (+ y (:height result) v-spacing)
+                   (into nodes (:nodes result))
+                   (into (if edge (conj edges edge) edges) (:edges result))
+                   (:end-node-id result)))
+
           ;; Nested sequence - flatten it
           (= :sequence child-type)
           (let [result (layout-sequence (:children child) start-x y node-status-map)
@@ -254,6 +265,10 @@
                   :end-node-id node-id
                   :width node-width
                   :height node-height})
+
+               ;; Branch is a view-action - layout its children
+               (= :view-action (:type branch))
+               (layout-sequence (:children branch) branch-x branch-y node-status-map)
 
                ;; Unknown - skip but log
                :else

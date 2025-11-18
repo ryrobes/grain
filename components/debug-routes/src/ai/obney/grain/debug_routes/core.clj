@@ -2,6 +2,8 @@
   "HTTP endpoints for debug UI to fetch behavior tree execution traces."
   (:require [ai.obney.grain.behavior-tree-v2-debug.interface :as debug]
             [ai.obney.grain.debug-routes.repl :as repl]
+            [ai.obney.grain.debug-routes.live-flows :as live-flows]
+            [ai.obney.grain.debug-routes.wizard-handlers :as wizard]
             [ai.obney.grain.view-router.interface :as view-router]
             [io.pedestal.http :as http]
             [io.pedestal.http.body-params :as body-params]
@@ -65,6 +67,30 @@
    "Access-Control-Allow-Headers" "Content-Type"})
 
 ;;
+;; Styles
+;;
+
+(def wizard-styles
+  "CSS styles for wizard views"
+  "* { box-sizing: border-box; }
+   body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; background: white; color: #1f2937; }
+   h1, h2, h3 { margin: 0 0 1rem 0; font-weight: 600; color: #111827; }
+   h1 { font-size: 2rem; }
+   h2 { font-size: 1.5rem; }
+   p { margin: 0 0 1rem 0; }
+   .wizard-step { padding: 2rem; background: white; border-radius: 8px; }
+   .progress-bar { background: #e5e7eb; height: 8px; border-radius: 4px; margin: 1.5rem 0; }
+   .progress-bar .fill { background: #10b981; height: 100%; transition: width 0.3s; }
+   button { padding: 0.625rem 1.25rem; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 500; }
+   button.primary { background: #10b981; color: white; }
+   button.secondary { background: #6b7280; color: white; margin-right: 0.5rem; }
+   input, select { padding: 0.625rem; border: 1px solid #d1d5db; border-radius: 6px; font-size: 1rem; width: 100%; }
+   label { display: block; margin: 1rem 0 0.375rem; font-weight: 500; }
+   .errors { background: #fef2f2; color: #991b1b; padding: 1rem; border-radius: 6px; margin: 1rem 0; }
+   form { margin: 1.5rem 0; }
+   code { background: #f3f4f6; padding: 0.125rem 0.375rem; border-radius: 3px; }")
+
+;;
 ;; Route Handlers
 ;;
 
@@ -76,6 +102,8 @@
    - command-name: Filter by command name
    - status: Filter by status (:success, :failure, :error)"
   [request]
+  (require '[ai.obney.grain.flow-session-manager.interface :as fsm])
+
   (let [query-params (get-in request [:query-params])
         limit (or (some-> (get query-params "limit") Integer/parseInt) 50)
         command-name (when-let [cmd (get query-params "command-name")]
@@ -86,12 +114,22 @@
         traces (debug/list-trace-summaries
                 :limit limit
                 :command-name command-name
-                :status status)]
+                :status status)
+
+        ;; Get active sessions to mark live traces
+        active-sessions ((resolve 'ai.obney.grain.flow-session-manager.interface/list-active-sessions))
+        active-trace-ids (set (keep :trace-id active-sessions))
+
+        ;; Annotate traces with live status
+        annotated-traces (mapv (fn [trace]
+                                (assoc trace :live? (contains? active-trace-ids (:trace-id trace))))
+                              traces)]
 
     {:status 200
      :headers (merge cors-headers {"Content-Type" "application/json"})
-     :body (serialize-transit {:traces traces
-                              :count (count traces)})}))
+     :body (serialize-transit {:traces annotated-traces
+                              :count (count traces)
+                              :live-count (count active-sessions)})}))
 
 (defn get-trace-handler
   "GET /debug/trace/:trace-id - Get a single trace by ID with full details."
@@ -473,4 +511,14 @@
                :headers {"Access-Control-Allow-Origin" "*"
                         "Access-Control-Allow-Methods" "POST, OPTIONS"
                         "Access-Control-Allow-Headers" "Content-Type"}})]
-      :route-name ::repl-eval-options]}))
+      :route-name ::repl-eval-options]
+
+     ;; Live flow endpoints
+     ["/flows/session/:session-id/current-view-data" :get [live-flows/current-view-data-handler] :route-name ::current-view-data]
+     ["/flows/session/:session-id/current-view" :get [allow-iframe live-flows/current-view-html-handler] :route-name ::current-view-html]
+     ["/flows/session/:session-id/status" :get [live-flows/session-status-handler] :route-name ::session-status]
+
+     ;; Wizard form handlers (direct HTTP, not command processor)
+     ["/wizard/continue" :post [(body-params/body-params) wizard/wizard-continue-handler] :route-name ::wizard-continue]
+     ["/wizard/submit-company" :post [(body-params/body-params) wizard/wizard-submit-company-handler] :route-name ::wizard-submit-company]
+     ["/wizard/submit-billing" :post [(body-params/body-params) wizard/wizard-submit-billing-handler] :route-name ::wizard-submit-billing]}))

@@ -72,17 +72,24 @@
   (letfn [(analyze-node [node path]
             (let [node-id path]
                 (cond
-                  ;; Composite nodes: [:sequence ...children...]
+                  ;; Composite nodes: [:sequence ...children...] or [:parallel {...} ...children...]
                   (and (vector? node)
                        (keyword? (first node))
                        (#{:sequence :fallback :parallel} (first node)))
-                  {:node-id node-id
-                   :type (first node)
-                   :label (name (first node))
-                   :children (mapv (fn [idx child]
-                                    (analyze-node child (str path "." idx)))
-                                  (range (count (rest node)))
-                                  (rest node))}
+                  (let [;; Check if second element is a config map
+                        has-config? (map? (second node))
+                        config (when has-config? (second node))
+                        ;; Children start at index 2 if config, else index 1
+                        children-start-idx (if has-config? 2 1)
+                        children-vec (vec (drop children-start-idx node))]
+                    {:node-id node-id
+                     :type (first node)
+                     :label (name (first node))
+                     :config (clean-config config)
+                     :children (mapv (fn [idx child]
+                                      (analyze-node child (str path "." idx)))
+                                    (range (count children-vec))
+                                    children-vec)})
 
                   ;; Action node: [:action fn] or [:action {...} fn]
                   (and (vector? node)
@@ -163,6 +170,17 @@
                      :label view-name
                      :view-config (clean-config view-config)
                      :render-fn "<function>"})
+
+                  ;; View-Action node: [:view-action [:view ...] [:action ...]]
+                  (and (vector? node)
+                       (= :view-action (first node)))
+                  {:node-id node-id
+                   :type :view-action
+                   :label "view-action"
+                   :children (mapv (fn [idx child]
+                                    (analyze-node child (str path "." idx)))
+                                  (range (count (rest node)))
+                                  (rest node))}
 
                   ;; Unknown node type
                   :else

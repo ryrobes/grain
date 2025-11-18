@@ -4,7 +4,8 @@
             [ai.obney.grain.event-store-v2.interface :as es]
             [ai.obney.grain.behavior-tree-v2-dspy-extensions.interface :refer [dspy]]
             [ai.obney.grain.debug-example-service.core.signatures :as sigs]
-            [ai.obney.grain.view-router.htmx :as htmx]))
+            [ai.obney.grain.view-router.htmx :as htmx]
+            [ai.obney.grain.flow-session-manager.helpers :as flow]))
 
 ;;
 ;; Example Behavior Trees
@@ -731,3 +732,203 @@
                     :account-id aggregate-id}]
          (es/append event-store {:events [event]})
          bt/success))]]])
+
+;;
+;; Interactive View Functions (Forms with session-id)
+;;
+
+(defn interactive-welcome-view [{:keys [st-memory]}]
+  (let [session-id (::session-id @st-memory)]
+    [:div.wizard-step {:style {:padding "2rem" :background "#ffffff" :border-radius "8px"}}
+     [:h1 {:style {:font-size "2rem" :font-weight "600" :margin "0 0 1rem 0" :color "#111827"}}
+      "🧙 Interactive Wizard"]
+     [:p {:style {:margin "0 0 1rem 0" :color "#374151"}}
+      "Welcome! This wizard is LIVE and interactive."]
+     [:p {:style {:margin "0 0 1.5rem 0" :color "#6b7280" :font-size "0.875rem"}}
+      "Session ID: " [:code {:style {:background "#f3f4f6" :padding "0.125rem 0.375rem"}} (str session-id)]]
+     [:div.progress-bar {:style {:background "#e5e7eb" :height "8px" :margin "1.5rem 0"}}
+      [:div.fill {:style {:background "#10b981" :height "100%" :width "10%"}}]]
+     [:form {:method "post" :action "/wizard/continue"}
+      [:input {:type "hidden" :name "session-id" :value (str session-id)}]
+      [:button.primary {:type "submit"
+                        :style {:padding "0.625rem 1.25rem" :border "none" :border-radius "6px"
+                                :background "#10b981" :color "white" :font-weight "500" :cursor "pointer"}}
+       "Get Started →"]]]))
+
+(defn interactive-company-view [{:keys [st-memory]}]
+  (let [session-id (::session-id @st-memory)
+        errors (::validation-errors @st-memory)]
+    [:div.wizard-step {:style {:padding "2rem"}}
+     [:h2 {:style {:font-size "1.5rem" :margin "0 0 1rem 0"}} "Company Information"]
+     [:div.progress-bar {:style {:background "#e5e7eb" :height "8px" :margin "1.5rem 0"}}
+      [:div.fill {:style {:background "#10b981" :height "100%" :width "35%"}}]]
+
+     (when errors
+       [:div.errors {:style {:background "#fef2f2" :color "#991b1b" :padding "1rem" :margin "1rem 0"}}
+        (for [err errors]
+          [:p.error {:key err :style {:margin "0.25rem 0"}} err])])
+
+     [:form {:method "post" :action "/wizard/submit-company"}
+      [:input {:type "hidden" :name "session-id" :value (str session-id)}]
+      [:div
+       [:label {:style {:display "block" :margin "1rem 0 0.375rem" :font-weight "500"}} "Company Name *"]
+       [:input {:name "company-name" :required true
+                :style {:padding "0.625rem" :border "1px solid #d1d5db" :border-radius "6px" :width "100%"}}]]
+      [:div
+       [:label {:style {:display "block" :margin "1rem 0 0.375rem" :font-weight "500"}} "Industry"]
+       [:input {:name "industry"
+                :style {:padding "0.625rem" :border "1px solid #d1d5db" :border-radius "6px" :width "100%"}}]]
+      [:div
+       [:label {:style {:display "block" :margin "1rem 0 0.375rem" :font-weight "500"}} "Employee Count"]
+       [:select {:name "employee-count"
+                 :style {:padding "0.625rem" :border "1px solid #d1d5db" :border-radius "6px" :width "100%"}}
+        [:option "1-10"]
+        [:option "11-50"]
+        [:option "51-200"]
+        [:option "201+"]]]
+      [:button.primary {:type "submit"
+                        :style {:padding "0.625rem 1.25rem" :border "none" :border-radius "6px"
+                                :background "#10b981" :color "white" :margin-top "1rem"}}
+       "Next →"]]]))
+
+(defn interactive-billing-view [{:keys [st-memory]}]
+  (let [session-id (::session-id @st-memory)
+        company-name (::company-name @st-memory "your company")]
+    [:div.wizard-step {:style {:padding "2rem"}}
+     [:h2 {:style {:font-size "1.5rem" :margin "0 0 1rem 0"}} "Billing Information"]
+     [:div.progress-bar {:style {:background "#e5e7eb" :height "8px" :margin "1.5rem 0"}}
+      [:div.fill {:style {:background "#10b981" :height "100%" :width "65%"}}]]
+     [:div {:style {:background "#f3f4f6" :padding "1rem" :border-radius "6px" :margin "1rem 0"}}
+      [:h3 "Standard Plan for " company-name]
+      [:p "✓ Unlimited users • ✓ 24/7 support"]
+      [:p {:style {:font-size "1.5rem" :font-weight "600" :margin-top "0.5rem"}} "$99/month"]]
+     [:form {:method "post" :action "/wizard/submit-billing"}
+      [:input {:type "hidden" :name "session-id" :value (str session-id)}]
+      [:div
+       [:label {:style {:display "block" :margin "1rem 0 0.375rem" :font-weight "500"}} "Card Number *"]
+       [:input {:name "card-number" :required true :placeholder "4242 4242 4242 4242"
+                :style {:padding "0.625rem" :border "1px solid #d1d5db" :border-radius "6px" :width "100%"}}]]
+      [:div {:style {:display "grid" :grid-template-columns "1fr 1fr" :gap "1rem"}}
+       [:div
+        [:label {:style {:display "block" :margin "1rem 0 0.375rem" :font-weight "500"}} "Expiry *"]
+        [:input {:name "expiry" :required true :placeholder "MM/YY"
+                 :style {:padding "0.625rem" :border "1px solid #d1d5db" :border-radius "6px" :width "100%"}}]]
+       [:div
+        [:label {:style {:display "block" :margin "1rem 0 0.375rem" :font-weight "500"}} "CVC"]
+        [:input {:name "cvc" :placeholder "123"
+                 :style {:padding "0.625rem" :border "1px solid #d1d5db" :border-radius "6px" :width "100%"}}]]]
+      [:button.primary {:type "submit"
+                        :style {:padding "0.625rem 1.25rem" :border "none" :border-radius "6px"
+                                :background "#10b981" :color "white" :margin-top "1rem"}}
+       "Complete Setup →"]]]))
+
+(defn interactive-complete-view [{:keys [st-memory]}]
+  (let [company-name (::company-name @st-memory "")
+        account-id (::account-id @st-memory)]
+    [:div.wizard-step.complete {:style {:padding "2rem" :text-align "center"}}
+     [:h1 {:style {:font-size "2rem" :margin "0 0 1rem 0"}} "✅ All Set!"]
+     [:p "Welcome to the platform, " [:strong company-name] "!"]
+     [:div {:style {:background "#e8f5e9" :padding "1rem" :border-radius "6px" :margin "1rem auto" :max-width "400px"}}
+      [:p "Account ID: " [:code {:style {:background "white" :padding "0.25rem 0.5rem"}} account-id]]]
+     [:p {:style {:color "#6b7280" :margin-top "2rem"}}
+      "This interactive session has completed successfully."]]))
+
+;; Interactive wizard tree definition (using :view-action nodes)
+(def interactive-wizard-tree
+  "Interactive wizard with :view-action nodes that properly block.
+
+  :view-action nodes execute the view (renders once), then the action (blocks).
+  This ensures views render before blocking, and returns :running correctly."
+  [:sequence
+   [:action {:id :init-session}
+    (fn [{:keys [st-memory]}]
+      (swap! st-memory merge
+             {::session-id (or (::session-id @st-memory) (random-uuid))
+              ::flow-started-at (java.time.Instant/now)
+              :logs []})
+      (println "🎬 Session initialized")
+      bt/success)]
+
+   ;; Step 1: Welcome screen (blocks until button clicked)
+   [:view-action
+    [:view {:id :welcome} interactive-welcome-view]
+    [:action {:id :await-start} (flow/await-event-fn :wizard/started)]]
+
+   ;; Step 2: Company info (blocks until form submitted AND validated)
+   [:view-action
+    [:view {:id :company-info} interactive-company-view]
+    [:sequence
+     [:action {:id :await-company} (flow/await-event-fn :wizard/company-submitted)]
+     [:action {:id :validate-company}
+      (fn [{:keys [st-memory]}]
+        (let [data (get @st-memory :wizard/company-data)]
+          (if (and data (:company-name data))
+            (do
+              (swap! st-memory assoc ::company-name (:company-name data))
+              (swap! st-memory dissoc ::validation-errors)
+              (println "✅ Company data validated")
+              bt/success)
+            (do
+              (swap! st-memory assoc ::validation-errors ["Company name required"])
+              (println "❌ Validation failed")
+              bt/failure))))]
+     [:action {:id :save-company}
+      (fn [{:keys [st-memory event-store]}]
+        (let [data (get @st-memory :wizard/company-data)
+              session-id (::session-id @st-memory)]
+          (es/append event-store
+                     {:events [{:event/type :wizard/company-saved
+                               :event/id (random-uuid)
+                               :event/timestamp (java.time.Instant/now)
+                               :event/tags [[:session-id session-id]]
+                               :body data}]})
+          (println "💾 Company data saved")
+          bt/success))]]]
+
+   ;; Step 3: Billing (blocks until billing submitted AND validated)
+   [:view-action
+    [:view {:id :billing} interactive-billing-view]
+    [:sequence
+     [:action {:id :await-billing} (flow/await-event-fn :wizard/billing-submitted)]
+     [:action {:id :validate-billing}
+      (fn [{:keys [st-memory]}]
+        (let [data (get @st-memory :wizard/billing-data)]
+          (if (and data (:card-number data) (:expiry data))
+            (do
+              (println "✅ Billing validated")
+              bt/success)
+            (do
+              (println "❌ Billing validation failed")
+              bt/failure))))]]]
+
+   ;; Step 4: Processing (view + background tasks in sequence)
+   [:sequence
+    [:view {:id :processing} processing-view]
+    [:action {:id :create-account}
+     (fn [{:keys [st-memory]}]
+       (swap! st-memory assoc ::progress 85)
+       (Thread/sleep 300)
+       (swap! st-memory assoc ::account-id (str "ACC-" (random-uuid)))
+       (println "👤 Account created")
+       bt/success)]
+    [:action {:id :provision}
+     (fn [{:keys [st-memory]}]
+       (swap! st-memory assoc ::progress 100)
+       (Thread/sleep 200)
+       (println "🔧 Resources provisioned")
+       bt/success)]]
+
+   ;; Step 5: Complete
+   [:view {:id :complete} interactive-complete-view]
+
+   [:action {:id :finalize}
+    (fn [{:keys [st-memory event-store]}]
+      (let [session-id (::session-id @st-memory)]
+        (es/append event-store
+                   {:events [{:event/type :wizard/completed
+                             :event/id (random-uuid)
+                             :event/timestamp (java.time.Instant/now)
+                             :event/tags [[:session-id session-id]]}]})
+        (println "🎉 Wizard completed!")
+        bt/success))]])
+

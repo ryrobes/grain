@@ -50,12 +50,22 @@
                          :on-failure [::fetch-traces-failure]}
                         opts)}))
 
-(rf/reg-event-db
+(rf/reg-event-fx
  ::fetch-traces-success
- (fn [db [_ response]]
-   (-> db
-       (assoc :traces (:traces response))
-       (assoc :loading false))))
+ (fn [{:keys [db]} [_ response]]
+   (let [new-traces (:traces response)
+         current-trace-id (get-in db [:current-trace :trace-id])
+         ;; Find if current trace was updated
+         updated-current (when current-trace-id
+                          (first (filter #(= current-trace-id (:trace-id %)) new-traces)))]
+
+     ;; If current trace is in the new list and is live, fetch latest version
+     (cond-> {:db (-> db
+                     (assoc :traces new-traces)
+                     (assoc :loading false))}
+
+       (and updated-current (:live? updated-current))
+       (assoc :dispatch [::fetch-trace current-trace-id])))))
 
 (rf/reg-event-db
  ::fetch-traces-failure
@@ -100,8 +110,63 @@
 (rf/reg-event-fx
  ::select-trace
  (fn [{:keys [db]} [_ trace-id]]
-   {:db (assoc db :selected-node nil)  ; Clear selected node
-    :dispatch [::fetch-trace trace-id]}))
+   (let [;; Find the trace in our list to check if it's live
+         traces (:traces db)
+         selected-trace (first (filter #(= trace-id (:trace-id %)) traces))
+         is-live? (:live? selected-trace)]
+
+     (js/console.log "Selected trace" trace-id "- live?" is-live?)
+
+     (cond->  {:db (assoc db :selected-node nil)  ; Clear selected node
+               :dispatch [::fetch-trace trace-id]}
+
+       ;; If it's a live trace, start polling for updates
+       is-live?
+       (assoc :dispatch-later [{:ms 1000 :dispatch [::poll-live-trace-updates trace-id]}])))))
+
+;;
+;; Live Trace Polling
+;;
+
+(rf/reg-event-fx
+ ::poll-live-trace-updates
+ (fn [{:keys [db]} [_ original-trace-id]]
+   (let [current-trace (:current-trace db)
+         traces (:traces db)
+         api-base (:api-base db)
+
+         ;; Find if ANY trace for this session is live
+         current-session-traces (filter #(= (:command-name %) (:command-name current-trace)) traces)
+         any-live? (some :live? current-session-traces)
+
+         ;; Get the LATEST trace (highest trace-id timestamp)
+         latest-trace (last (sort-by :started-at current-session-traces))
+         latest-trace-id (:trace-id latest-trace)
+
+         ;; Check if we should auto-select the latest
+         viewing-old-trace? (and latest-trace-id
+                                (not= latest-trace-id (:trace-id current-trace)))]
+
+     (js/console.log "🔄 Poll check - any live?" any-live? "viewing old?" viewing-old-trace?)
+
+     (cond
+       ;; New trace available! Auto-select it
+       viewing-old-trace?
+       (do
+         (js/console.log "🔄 Auto-selecting latest trace:" latest-trace-id)
+         {:dispatch [::select-trace latest-trace-id]
+          :dispatch-later [{:ms 1000 :dispatch [::poll-live-trace-updates latest-trace-id]}]})
+
+       ;; Still live, continue polling
+       any-live?
+       {:dispatch [::fetch-traces]
+        :dispatch-later [{:ms 1000 :dispatch [::poll-live-trace-updates original-trace-id]}]}
+
+       ;; Not live anymore, stop
+       :else
+       (do
+         (js/console.log "⏸️  Session completed, stopping poll")
+         {:db db})))))
 
 ;;
 ;; Node Selection
