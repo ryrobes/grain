@@ -160,6 +160,18 @@
    (= (:status trace) :running)))
 
 ;;
+;; Current Trace Session (for interactive flows)
+;;
+
+(rf/reg-sub
+ ::current-trace-session-id
+ :<- [::current-trace]
+ :<- [::traces]
+ (fn [[current-trace traces] _]
+   (when-let [tid (:trace-id current-trace)]
+     (:session-id (first (filter #(= tid (:trace-id %)) traces))))))
+
+;;
 ;; Node Status Mapping
 ;;
 ;; Build a map of node-id -> status based on execution events

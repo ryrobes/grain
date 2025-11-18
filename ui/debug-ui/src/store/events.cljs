@@ -86,19 +86,49 @@
                   :on-success [::fetch-trace-success]
                   :on-failure [::fetch-trace-failure]}}))
 
-(rf/reg-event-db
+(rf/reg-event-fx
  ::fetch-trace-success
- (fn [db [_ trace]]
+ (fn [{:keys [db]} [_ trace]]
    (let [trace-id (:trace-id trace)
          ;; Merge with any streaming events we collected
          streaming-events (get-in db [:streaming-events trace-id])
          merged-trace (if streaming-events
-                       (update trace :execution-events
-                              (fn [existing]
-                                ;; Merge streaming events with fetched events
-                                (vec (concat existing streaming-events))))
-                       trace)]
-     (assoc db :current-trace merged-trace :loading false))))
+                        (update trace :execution-events
+                                (fn [existing]
+                                  ;; Merge streaming events with fetched events
+                                  (vec (concat existing streaming-events))))
+                        trace)
+         db' (assoc db :current-trace merged-trace :loading false)
+
+         ;; Look up summary for this trace (has :live? and :session-id when interactive)
+         traces (:traces db)
+         summary (first (filter #(= trace-id (:trace-id %)) traces))
+         session-id (:session-id summary)
+         live? (:live? summary)
+
+         ;; Heuristic: treat traces with view or view-action nodes as interactive flows
+         tree-structure (:tree-structure merged-trace)
+         has-view?
+         (boolean
+          (when tree-structure
+            (some (fn [node]
+                    (and (map? node)
+                         (or (= :view (:type node))
+                             (= :view-action (:type node)))))
+                  (tree-seq
+                   (fn [x] (or (map? x) (sequential? x)))
+                   (fn [x]
+                     (cond
+                       (map? x) (:children x)
+                       (sequential? x) x
+                       :else nil))
+                   tree-structure))))]
+     (cond-> {:db db'}
+       (and live? session-id has-view?)
+       ;; Automatically open live flow iframe preview inside debug UI
+       (assoc :dispatch
+              [::show-view-preview
+               (str (:api-base db) "/flows/session/" session-id "/current-view")])))))
 
 (rf/reg-event-db
  ::fetch-trace-failure

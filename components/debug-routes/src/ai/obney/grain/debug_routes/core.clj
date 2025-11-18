@@ -116,13 +116,21 @@
                 :command-name command-name
                 :status status)
 
-        ;; Get active sessions to mark live traces
+        ;; Get active sessions to mark live traces and attach session-ids
         active-sessions ((resolve 'ai.obney.grain.flow-session-manager.interface/list-active-sessions))
         active-trace-ids (set (keep :trace-id active-sessions))
+        trace-id->session-id (into {}
+                                   (keep (fn [{:keys [trace-id session-id]}]
+                                           (when trace-id
+                                             [trace-id (str session-id)]))
+                                         active-sessions))
 
-        ;; Annotate traces with live status
+        ;; Annotate traces with live status and session-id (when available)
         annotated-traces (mapv (fn [trace]
-                                (assoc trace :live? (contains? active-trace-ids (:trace-id trace))))
+                                (let [trace-id (:trace-id trace)
+                                      session-id (get trace-id->session-id trace-id)]
+                                  (cond-> (assoc trace :live? (contains? active-trace-ids trace-id))
+                                    session-id (assoc :session-id session-id))))
                               traces)]
 
     {:status 200

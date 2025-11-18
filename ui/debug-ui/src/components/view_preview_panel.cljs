@@ -90,10 +90,11 @@
   "Fetch view data from backend"
   [preview-url api-base view-data loading? error]
   (when preview-url
-    (let [url-match (re-matches #".*/debug/trace/([^/]+)/view/(.+)" preview-url)]
-      (when url-match
-        (let [trace-id (nth url-match 1)
-              view-id (nth url-match 2)
+    ;; Historical trace preview mode: /debug/trace/:trace-id/view/:node-id
+    (let [trace-url-match (re-matches #".*/debug/trace/([^/]+)/view/(.+)" preview-url)]
+      (when trace-url-match
+        (let [trace-id (nth trace-url-match 1)
+              view-id (nth trace-url-match 2)
               data-url (str api-base "/debug/trace/" trace-id "/view-data/" view-id)]
           (js/console.log "📡 Fetching view data from:" data-url)
           (reset! loading? true)
@@ -139,7 +140,10 @@
 
       :reagent-render
       (fn []
-        (let [preview-url @(rf/subscribe [::subs/view-preview-url])]
+        (let [preview-url @(rf/subscribe [::subs/view-preview-url])
+              api-base @(rf/subscribe [::subs/api-base])
+              live-flow? (when preview-url
+                           (boolean (re-find #"/flows/session/.+/current-view" preview-url)))]
         [:div {:style {:width "100%"
                        :height "100%"
                        :display "flex"
@@ -157,13 +161,13 @@
                          :gap "0.5rem"}}
            [:span {:style {:font-size "1.25rem"}} "👁"]
            [:span {:style {:font-weight "600"
-                           :color "#e9d5ff"}} "View Preview"]
-           (when @view-data
+                           :color "#e9d5ff"}} (if live-flow? "Live Flow" "View Preview")]
+           (when (and (not live-flow?) @view-data)
              [:span {:style {:font-size "0.75rem"
                              :color "#94a3b8"
                              :font-family "ui-monospace"}}
               (str "View: " (:view-id @view-data))])
-           [:a {:href preview-url
+           [:a {:href (or preview-url "")
                 :target "_blank"
                 :style {:font-size "0.75rem"
                         :color "#a78bfa"
@@ -189,56 +193,71 @@
                         :padding "1rem"
                         :background-color "white"
                         :position "relative"}}
-          (cond
-            @loading?
-            [:div {:style {:display "flex"
-                           :align-items "center"
-                           :justify-content "center"
+          (if live-flow?
+            ;; Live flow mode - embed current-view endpoint in an iframe
+            [:div {:style {:width "100%"
                            :height "100%"
-                           :color "#64748b"}}
-             "⏳ Loading view..."]
+                           :border "1px solid #0f172a"
+                           :border-radius "0.5rem"
+                           :overflow "hidden"
+                           :background-color "#020617"}}
+             [:iframe {:src (str preview-url)
+                       :style {:width "100%"
+                               :height "100%"
+                               :border "none"}
+                       :sandbox "allow-same-origin allow-forms allow-scripts"}]]
 
-            @error
-            [:div {:style {:padding "2rem"
-                           :color "#dc2626"
-                           :background-color "#fef2f2"
-                           :border-radius "0.5rem"}}
-             [:h3 "Error loading view"]
-             [:pre {:style {:margin-top "1rem"
-                            :font-size "0.875rem"}}
-              (pr-str @error)]]
+            ;; Historical preview mode - render captured Hiccup
+            (cond
+              @loading?
+              [:div {:style {:display "flex"
+                             :align-items "center"
+                             :justify-content "center"
+                             :height "100%"
+                             :color "#64748b"}}
+               "⏳ Loading view..."]
 
-            @view-data
-            (let [hiccup (:hiccup @view-data)]
-              ;; CSS Reset wrapper to prevent debug UI styles from bleeding in
-              [:div {:style {:max-width "800px"
-                             :margin "0 auto"
-                             ;; Reset all inherited styles
-                             :all "initial"
-                             :font-family "system-ui, -apple-system, sans-serif"
-                             :color "#000"
-                             :line-height "1.5"}}
-               ;; Debug banner
-               [:div {:style {:background-color "#ff9800"
-                              :color "white"
-                              :padding "0.5rem 1rem"
-                              :margin-bottom "1rem"
-                              :font-size "0.875rem"
-                              :font-weight "600"
-                              :border-radius "0.25rem"}}
-                "🔍 Debug View Preview (Direct Render)"]
-               ;; Render the Hiccup directly as Reagent with fresh styles
-               [:div {:style {:all "initial"
-                              :display "block"
-                              :font-family "system-ui, -apple-system, sans-serif"
-                              :color "#000"
-                              :line-height "1.5"}}
-                (hiccup->reagent hiccup)]])
+              @error
+              [:div {:style {:padding "2rem"
+                             :color "#dc2626"
+                             :background-color "#fef2f2"
+                             :border-radius "0.5rem"}}
+               [:h3 "Error loading view"]
+               [:pre {:style {:margin-top "1rem"
+                              :font-size "0.875rem"}}
+                (pr-str @error)]]
 
-            :else
-            [:div {:style {:display "flex"
-                           :align-items "center"
-                           :justify-content "center"
-                           :height "100%"
-                           :color "#64748b"}}
-             "No view selected"])]]))})))
+              @view-data
+              (let [hiccup (:hiccup @view-data)]
+                ;; CSS Reset wrapper to prevent debug UI styles from bleeding in
+                [:div {:style {:max-width "800px"
+                               :margin "0 auto"
+                               ;; Reset all inherited styles
+                               :all "initial"
+                               :font-family "system-ui, -apple-system, sans-serif"
+                               :color "#000"
+                               :line-height "1.5"}}
+                 ;; Debug banner
+                 [:div {:style {:background-color "#ff9800"
+                                :color "white"
+                                :padding "0.5rem 1rem"
+                                :margin-bottom "1rem"
+                                :font-size "0.875rem"
+                                :font-weight "600"
+                                :border-radius "0.25rem"}}
+                  "🔍 Debug View Preview (Direct Render)"]
+                 ;; Render the Hiccup directly as Reagent with fresh styles
+                 [:div {:style {:all "initial"
+                                :display "block"
+                                :font-family "system-ui, -apple-system, sans-serif"
+                                :color "#000"
+                                :line-height "1.5"}}
+                  (hiccup->reagent hiccup)]])
+
+              :else
+              [:div {:style {:display "flex"
+                             :align-items "center"
+                             :justify-content "center"
+                             :height "100%"
+                             :color "#64748b"}}
+               "No view selected"]))]]))})))

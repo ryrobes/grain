@@ -417,7 +417,9 @@
   (let [current-trace @(rf/subscribe [::subs/current-trace])
         is-executing @(rf/subscribe [::subs/is-trace-executing])
         execution-events @(rf/subscribe [::subs/execution-events])
-        selected-node @(rf/subscribe [::subs/selected-node])]
+        selected-node @(rf/subscribe [::subs/selected-node])
+        session-id @(rf/subscribe [::subs/current-trace-session-id])
+        api-base @(rf/subscribe [::subs/api-base])]
     (when current-trace
       (let [{:keys [command-name duration-ms status trace-id]} current-trace
             trace-id-str (str trace-id)]
@@ -456,6 +458,24 @@
                            :selected-node-id selected-node
                            :trace-id trace-id-str
                            :is-executing is-executing}]])
+
+          ;; Manual button to open live flow iframe for interactive sessions
+          (when session-id
+            [:button {:on-click #(rf/dispatch [::events/show-view-preview
+                                               (str api-base "/flows/session/" session-id "/current-view")])
+                      :style {:margin-left "auto"
+                              :padding "0.35rem 0.75rem"
+                              :border-radius "999px"
+                              :border "1px solid #4f46e5"
+                              :background-color "#312e81"
+                              :color "#e0e7ff"
+                              :font-size "0.75rem"
+                              :display "inline-flex"
+                              :align-items "center"
+                              :gap "0.35rem"
+                              :cursor "pointer"}}
+             [:span {:style {:font-size "0.85rem"}} "▶"]
+             [:span "Open Live Flow"]])
 
           ;; [:span {:style (merge s/ml-auto s/text-xs {:color (:gray-500 s/colors)} s/font-mono)} trace-id-str]
           ]]))))
@@ -587,4 +607,3 @@
 
              :else
              nil)]]]))}))
-

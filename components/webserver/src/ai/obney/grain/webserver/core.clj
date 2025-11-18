@@ -9,6 +9,14 @@
              ::http/host "0.0.0.0"
              ::http/type :jetty
              ::http/routes #(route/expand-routes #{["/" :get (fn [_req] {:status 200 :body "Hello, world!"}) :route-name :default]})
+             ;; Allow embedding in iframes (needed for debug UI live flow panel)
+             ;; Pedestal's default secure-headers adds X-Frame-Options: DENY.
+             ;; We override that here so route-level allow-iframe interceptors
+             ;; (in debug-routes) can take effect.
+             ::http/secure-headers {:frame-options? false
+                       :content-security-policy-settings 
+                       {:object-src "'none'"
+                        :frame-ancestors "*"}}  ;; This allows all
              ::http/join? false}})
 
 (defmethod ig/init-key ::server [_ config]
@@ -35,5 +43,4 @@
 (defn stop 
   [webserver]
   (ig/halt! webserver))
-
 
